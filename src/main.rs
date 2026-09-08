@@ -20,14 +20,17 @@ pub fn cast_ray(
     ray_direction: &Vector3,
     objects: &[Sphere],
 ) -> Color {
-    for object in objects {
-        let material = object.ray_intersect(ray_origin, ray_direction);
+    let mut zbuffer = f32::INFINITY;
+    let mut pixel_color = Color::new(14, 27, 61, 255);
 
-        if material.diffuse != Color::BLACK {
-            return material.diffuse;
+    for object in objects {
+        let intersect = object.ray_intersect(ray_origin, ray_direction);
+        if intersect.is_intersecting && intersect.distance < zbuffer {
+            zbuffer = intersect.distance;
+            pixel_color = intersect.material.diffuse;
         }
     }
-    Color::new(4, 12, 36, 255)
+    pixel_color
 }
 
 

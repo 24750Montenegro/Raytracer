@@ -1,0 +1,13 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# Backtrace / debug
+*.pdb
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
