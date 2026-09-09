@@ -20,7 +20,7 @@ use material::Material;
 
 
 const DEF_DEPTH: f32 = 5.0;
-const MOVE_SPEED: f32 = 1.0;
+const SPHERE_MOVE_SPEED: f32 = 1.0;
 const MIN_RADIUS: f32 = 0.001;
 // solo evita dividir entre cero al reescalar la profundidad
 const DEPTH_EPS: f32 = 0.001;
@@ -160,26 +160,26 @@ fn main() {
 
             //depth q/e
             if window.is_key_down(KeyboardKey::KEY_Q) {
-                delta += MOVE_SPEED * dt; // más profundo
+                delta += SPHERE_MOVE_SPEED * dt; // más profundo
             }
             if window.is_key_down(KeyboardKey::KEY_E) {
-                delta -= MOVE_SPEED * dt; // más cerca
+                delta -= SPHERE_MOVE_SPEED * dt; // más cerca
             }
 
             // mover x con a/d
             if window.is_key_down(KeyboardKey::KEY_A) {
-                delta_x -= MOVE_SPEED * dt; // izquierda
+                delta_x -= SPHERE_MOVE_SPEED * dt; // izquierda
             }
             if window.is_key_down(KeyboardKey::KEY_D) {
-                delta_x += MOVE_SPEED * dt; // derecha
+                delta_x += SPHERE_MOVE_SPEED * dt; // derecha
             }
 
             //mover y con w/s
             if window.is_key_down(KeyboardKey::KEY_W) {
-                delta_y += MOVE_SPEED * dt; // arriba
+                delta_y += SPHERE_MOVE_SPEED * dt; // arriba
             }
             if window.is_key_down(KeyboardKey::KEY_S) {
-                delta_y -= MOVE_SPEED * dt; // abajo
+                delta_y -= SPHERE_MOVE_SPEED * dt; // abajo
             }
 
 
