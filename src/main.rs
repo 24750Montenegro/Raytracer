@@ -20,7 +20,7 @@ use material::Material;
 
 
 const DEF_DEPTH: f32 = 5.0;
-const DEPH_SPEED: f32 = 1.0;
+const MOVE_SPEED: f32 = 1.0;
 const MIN_RADIUS: f32 = 0.001;
 // solo evita dividir entre cero al reescalar la profundidad
 const DEPTH_EPS: f32 = 0.001;
@@ -155,19 +155,41 @@ fn main() {
         //mover z con w/s
         if let Some(i) = selected {
             let mut delta = 0.0;
-            if window.is_key_down(KeyboardKey::KEY_W) {
-                delta += DEPH_SPEED * dt; // más profundo
+            let mut delta_x = 0.0;
+            let mut delta_y = 0.0;
+
+            //depth q/e
+            if window.is_key_down(KeyboardKey::KEY_Q) {
+                delta += MOVE_SPEED * dt; // más profundo
             }
-            if window.is_key_down(KeyboardKey::KEY_S) {
-                delta -= DEPH_SPEED * dt; // más cerca
+            if window.is_key_down(KeyboardKey::KEY_E) {
+                delta -= MOVE_SPEED * dt; // más cerca
             }
 
-            // cambiar color con a/d siguiendo el orden del array
+            // mover x con a/d
+            if window.is_key_down(KeyboardKey::KEY_A) {
+                delta_x -= MOVE_SPEED * dt; // izquierda
+            }
+            if window.is_key_down(KeyboardKey::KEY_D) {
+                delta_x += MOVE_SPEED * dt; // derecha
+            }
+
+            //mover y con w/s
+            if window.is_key_down(KeyboardKey::KEY_W) {
+                delta_y += MOVE_SPEED * dt; // arriba
+            }
+            if window.is_key_down(KeyboardKey::KEY_S) {
+                delta_y -= MOVE_SPEED * dt; // abajo
+            }
+
+
+
+            // cambiar color con j/k siguiendo el orden del array
             let mut step = 0i32;
-            if window.is_key_pressed(KeyboardKey::KEY_A) {
+            if window.is_key_pressed(KeyboardKey::KEY_J) {
                 step -= 1;
             }
-            if window.is_key_pressed(KeyboardKey::KEY_D) {
+            if window.is_key_pressed(KeyboardKey::KEY_K) {
                 step += 1;
             }
 
@@ -179,15 +201,20 @@ fn main() {
                 dirty = true;
             }
 
-            if delta != 0.0 {
+            if delta | delta_x | delta_y != 0.0 {
                 let sphere = &mut objects[i];
                 let depth = -sphere.center.z;
                 let new_depth = depth + delta;
+                let new_center = Vector3::new(
+                    sphere.center.x + delta_x,
+                    sphere.center.y + delta_y,
+                    new_depth,
+                );
 
                 // sin tope: tan lejos o tan cerca como quiera, pero sin cruzar la camara
                 if new_depth.abs() >= DEPTH_EPS && depth.abs() >= DEPTH_EPS {
                     let k = new_depth / depth;
-                    sphere.center = sphere.center * k;
+                    sphere.center = new_center;
                     dirty = true;
                 }
             }
