@@ -176,10 +176,10 @@ fn main() {
 
             //mover y con w/s
             if window.is_key_down(KeyboardKey::KEY_W) {
-                delta_y += SPHERE_MOVE_SPEED * dt; // arriba
+                delta_y -= SPHERE_MOVE_SPEED * dt; // arriba
             }
             if window.is_key_down(KeyboardKey::KEY_S) {
-                delta_y -= SPHERE_MOVE_SPEED * dt; // abajo
+                delta_y += SPHERE_MOVE_SPEED * dt; // abajo
             }
 
 
@@ -201,7 +201,7 @@ fn main() {
                 dirty = true;
             }
 
-            if delta | delta_x | delta_y != 0.0 {
+            if delta != 0.0 || delta_x != 0.0 || delta_y != 0.0 {
                 let sphere = &mut objects[i];
                 let depth = -sphere.center.z;
                 let new_depth = depth + delta;
