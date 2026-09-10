@@ -98,6 +98,23 @@ fn dump_objects(objects: &[Sphere]) {
     println!("];");
 }
 
+/// Escena precargada (dibujo). Descomentar el `return` para usarla.
+fn preset_scene() -> Vec<Sphere> {
+    vec![
+        Sphere { center: Vector3::new(1.8100519, -1.9459274, -5.0), radius: 0.6675576, material: Material { diffuse: Color::new(182, 188, 121, 255) } },
+        Sphere { center: Vector3::new(1.7711501, -1.9104263, -4.9027395), radius: 0.60205203, material: Material { diffuse: Color::new(183, 159, 42, 255) } },
+        Sphere { center: Vector3::new(1.7029026, -1.9012673, -4.515962), radius: 0.4403378, material: Material { diffuse: Color::new(182, 188, 121, 255) } },
+        Sphere { center: Vector3::new(-2.2157428, 2.218038, -4.515962), radius: 0.43833515, material: Material { diffuse: Color::new(21, 28, 26, 255) } },
+        Sphere { center: Vector3::new(-2.1275501, 1.642594, -4.515962), radius: 0.28494725, material: Material { diffuse: Color::new(21, 28, 26, 255) } },
+        Sphere { center: Vector3::new(-2.4873564, 0.64139396, -4.515962), radius: 0.12623174, material: Material { diffuse: Color::new(157, 172, 180, 255) } },
+        Sphere { center: Vector3::new(-2.2892025, 0.7874023, -4.515962), radius: 0.09001779, material: Material { diffuse: Color::new(182, 188, 121, 255) } },
+        Sphere { center: Vector3::new(-2.2892025, -2.143194, -4.515962), radius: 0.17760244, material: Material { diffuse: Color::new(157, 172, 180, 255) } },
+        Sphere { center: Vector3::new(-1.2045689, -2.1014774, -4.515962), radius: 0.15859544, material: Material { diffuse: Color::new(157, 172, 180, 255) } },
+        Sphere { center: Vector3::new(-0.6413938, 1.1054919, -4.515962), radius: 0.19173793, material: Material { diffuse: Color::new(157, 172, 180, 255) } },
+        Sphere { center: Vector3::new(-0.8082605, 0.2190125, -4.515962), radius: 0.1332529, material: Material { diffuse: Color::new(157, 172, 180, 255) } },
+    ]
+}
+
 fn main() {
     let window_width = 1000;
     let window_height = 1000;
@@ -117,6 +134,8 @@ fn main() {
     let height = window_height as f32;
 
     let mut objects: Vec<Sphere> = Vec::new();
+    // dibujo precargado
+    // let mut objects: Vec<Sphere> = preset_scene();
     let mut dragging: Option<usize> = None;
     let mut selected: Option<usize> = None;
     let mut dirty = true;
