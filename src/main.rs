@@ -78,8 +78,28 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
 
 }
 
+/// Imprime la escena como codigo Rust
+fn dump_objects(objects: &[Sphere]) {
+    println!("let objects: Vec<Sphere> = vec![");
+    for object in objects {
+        let c = object.material.diffuse;
+        println!(
+            "    Sphere {{ center: Vector3::new({:?}, {:?}, {:?}), radius: {:?}, material: Material {{ diffuse: Color::new({}, {}, {}, {}) }} }},",
+            object.center.x,
+            object.center.y,
+            object.center.z,
+            object.radius,
+            c.r,
+            c.g,
+            c.b,
+            c.a,
+        );
+    }
+    println!("];");
+}
+
 fn main() {
-    let window_width = 1000;
+    let window_width = 100;
     let window_height = 1000;
 
     let (mut window, raylib_thread) = raylib::init()
@@ -227,4 +247,6 @@ fn main() {
 
         framebuffer.swap_buffers(&mut window, &raylib_thread);
     }
+
+    dump_objects(&objects);
 }
