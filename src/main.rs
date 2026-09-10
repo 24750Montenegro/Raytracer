@@ -99,7 +99,7 @@ fn dump_objects(objects: &[Sphere]) {
 }
 
 fn main() {
-    let window_width = 100;
+    let window_width = 1000;
     let window_height = 1000;
 
     let (mut window, raylib_thread) = raylib::init()
