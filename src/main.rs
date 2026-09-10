@@ -203,18 +203,17 @@ fn main() {
 
             if delta != 0.0 || delta_x != 0.0 || delta_y != 0.0 {
                 let sphere = &mut objects[i];
+                // depth es distancia positiva delante de la camara; center.z guarda -depth
                 let depth = -sphere.center.z;
                 let new_depth = depth + delta;
-                let new_center = Vector3::new(
-                    sphere.center.x + delta_x,
-                    sphere.center.y + delta_y,
-                    new_depth,
-                );
 
                 // sin tope: tan lejos o tan cerca como quiera, pero sin cruzar la camara
-                if new_depth.abs() >= DEPTH_EPS && depth.abs() >= DEPTH_EPS {
-                    let k = new_depth / depth;
-                    sphere.center = new_center;
+                if new_depth >= DEPTH_EPS {
+                    sphere.center = Vector3::new(
+                        sphere.center.x + delta_x,
+                        sphere.center.y + delta_y,
+                        -new_depth,
+                    );
                     dirty = true;
                 }
             }
