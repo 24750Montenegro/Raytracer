@@ -10,29 +10,10 @@ use crate::projection;
 use crate::scene::Scene;
 use crate::shading;
 
-pub const BACKGROUND_COLOR: Color = Color { r: 14, g: 27, b: 61, a: 255 };
-
 /// Filas por tile. Tiles chicos = mejor reparto (una franja con muchas
 /// esferas cuesta bastante mas que uno de puro fondo), pero demasiado
 /// chicos y se paga el lock mas seguido. 8 filas es un punto sano.
 const TILE_ROWS: usize = 8;
-
-pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, scene: &Scene) -> Color {
-    let Some((index, distance)) = scene.bvh.nearest_hit(ray_origin, ray_direction, &scene.objects)
-    else {
-        return BACKGROUND_COLOR; //default para el color de fondo
-    };
-
-    // punto y normal solo para la esfera que gano, no para las descartadas
-    let sphere = &scene.objects[index];
-    let point = *ray_origin + *ray_direction * distance;
-    let normal = sphere.normal_at(point);
-
-    // del punto hacia la camara: el especular necesita saber desde donde se mira
-    let view_dir = -*ray_direction;
-
-    shading::shade(scene, &sphere.material, point, normal, view_dir)
-}
 
 /// Traza un tile: las filas [y_start, y_start + filas del tile).
 /// Recibe solo el pedazo de framebuffer que le toca, asi varios hilos
@@ -73,7 +54,8 @@ fn render_tile(
             let inv_len = 1.0 / (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z).sqrt();
             let ray_direction = Vector3::new(dir.x * inv_len, dir.y * inv_len, dir.z * inv_len);
 
-            let color = cast_ray(&camera.origin, &ray_direction, scene);
+            let color =
+                shading::trace(scene, camera.origin, ray_direction, shading::MAX_DEPTH).to_color();
             pixel[0] = color.r;
             pixel[1] = color.g;
             pixel[2] = color.b;

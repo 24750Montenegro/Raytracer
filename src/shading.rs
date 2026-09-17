@@ -1,5 +1,6 @@
 // shading.rs
-// Modelo de iluminacion: difuso de Lambert mas brillo especular de Phong.
+// Modelo de iluminacion: difuso de Lambert, brillo especular de Phong y
+// reflejos por trazado recursivo.
 //
 // Antes cada esfera se pintaba con su color plano, asi que una esfera se veia
 // como un circulo de un solo tono. Con Lambert el brillo de cada punto depende
@@ -9,26 +10,59 @@
 //
 // Ademas cada luz se consulta con un rayo de sombra: si otra esfera se
 // interpone, esa luz no aporta nada a este punto.
+//
+// Las superficies reflectantes tiran un rayo mas desde el punto de impacto,
+// que a su vez puede pegar en otra superficie reflectante. Ese encadenado es
+// lo que limita MAX_DEPTH.
 use raylib::prelude::*;
 
 use crate::color::Rgb;
 use crate::material::Material;
 use crate::scene::Scene;
 
-/// Cuanto se despega el rayo de sombra de la superficie. Sin este empujon
-/// la esfera se tapa a si misma por error de redondeo y sale el moteado
-/// clasico de las sombras mal hechas.
-const SHADOW_BIAS: f32 = 1e-3;
+/// Cuanto se despegan de la superficie los rayos que salen de ella. Sin este
+/// empujon la esfera se toca a si misma por error de redondeo: en las sombras
+/// sale el moteado clasico y en los reflejos, manchas negras.
+const SURFACE_BIAS: f32 = 1e-3;
 
-/// Color final de un punto de la superficie.
+/// Cuantos rebotes puede encadenar un rayo: el reflejo de un reflejo de un
+/// reflejo. Cada nivel mas casi no se nota y multiplica el trabajo.
+pub const MAX_DEPTH: u32 = 3;
+
+/// Color que trae el rayo que sale de origin en esa direccion.
+/// depth es cuantos rebotes le quedan permitidos.
+pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> Rgb {
+    let Some((index, distance)) = scene.bvh.nearest_hit(&origin, &direction, &scene.objects) else {
+        return scene.background;
+    };
+
+    // punto y normal solo para la esfera que gano, no para las descartadas
+    let sphere = &scene.objects[index];
+    let point = origin + direction * distance;
+    let normal = sphere.normal_at(point);
+    let material = &sphere.material;
+
+    // del punto hacia la camara: el especular necesita saber desde donde se mira
+    let mut color = shade(scene, material, point, normal, -direction);
+
+    if depth > 0 && material.albedo.reflection > 0.0 {
+        let bounce = reflect(direction, normal).normalized();
+        let bounce_origin = point + normal * SURFACE_BIAS;
+        color = color + trace(scene, bounce_origin, bounce, depth - 1) * material.albedo.reflection;
+    }
+
+    color
+}
+
+/// Luz directa en un punto de la superficie: ambiente, difuso y especular.
 /// view_dir va del punto hacia la camara, ya normalizado.
-pub fn shade(
+fn shade(
     scene: &Scene,
     material: &Material,
     point: Vector3,
     normal: Vector3,
     view_dir: Vector3,
-) -> Color {
+) -> Rgb {
     let base = Rgb::from_color(material.diffuse);
 
     // la ambiente es el piso: sin ella, lo que no ve ninguna luz queda negro
@@ -67,8 +101,7 @@ pub fn shade(
     }
 
     // albedo: cuanta luz sale por cada camino en vez de absorberse
-    let color = base * diffuse * material.albedo.diffuse + specular * material.albedo.specular;
-    color.to_color()
+    base * diffuse * material.albedo.diffuse + specular * material.albedo.specular
 }
 
 /// Hay otra esfera entre este punto y la luz?
@@ -79,7 +112,7 @@ fn in_shadow(
     to_light: Vector3,
     distance: f32,
 ) -> bool {
-    let origin = point + normal * SHADOW_BIAS;
+    let origin = point + normal * SURFACE_BIAS;
     // se corta en la luz: lo que queda detras de ella no hace sombra
     scene.bvh.any_hit(&origin, &to_light, distance, &scene.objects)
 }
@@ -103,7 +136,18 @@ mod tests {
     const VIEW: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
 
     fn white_matte(albedo: f32) -> Material {
-        Material::new(Color::new(255, 255, 255, 255), Albedo::new(albedo, 0.0), 1.0)
+        Material::new(Color::new(255, 255, 255, 255), Albedo::new(albedo, 0.0, 0.0), 1.0)
+    }
+
+    /// Los tests miran colores de raylib: mas facil de leer que los f32.
+    fn shade_color(
+        scene: &Scene,
+        material: &Material,
+        point: Vector3,
+        normal: Vector3,
+        view_dir: Vector3,
+    ) -> Color {
+        shade(scene, material, point, normal, view_dir).to_color()
     }
 
     /// Escena minima: una luz blanca a un metro sobre el punto (0,0,0),
@@ -124,8 +168,8 @@ mod tests {
         let scene = single_light_scene(1.0, 0.0);
         let material = white_matte(1.0);
 
-        let facing = shade(&scene, &material, Vector3::zero(), Vector3::new(0.0, -1.0, 0.0), VIEW);
-        let tilted = shade(&scene, &material, Vector3::zero(), Vector3::new(0.7, -0.7, 0.0), VIEW);
+        let facing = shade_color(&scene, &material, Vector3::zero(), Vector3::new(0.0, -1.0, 0.0), VIEW);
+        let tilted = shade_color(&scene, &material, Vector3::zero(), Vector3::new(0.7, -0.7, 0.0), VIEW);
 
         assert_eq!(facing.r, 255);
         assert!(tilted.r < facing.r, "de canto tiene que llegar menos luz");
@@ -137,7 +181,7 @@ mod tests {
         let material = white_matte(1.0);
 
         // normal apuntando al lado opuesto de la luz
-        let away = shade(&scene, &material, Vector3::zero(), Vector3::new(0.0, 1.0, 0.0), VIEW);
+        let away = shade_color(&scene, &material, Vector3::zero(), Vector3::new(0.0, 1.0, 0.0), VIEW);
 
         assert_eq!(away.r, (0.25 * 255.0) as u8);
     }
@@ -149,11 +193,11 @@ mod tests {
         let scene = single_light_scene(1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
         let color = Color::new(200, 200, 200, 255);
-        let bright_material = Material::new(color, Albedo::new(0.9, 0.0), 1.0);
-        let dark_material = Material::new(color, Albedo::new(0.2, 0.0), 1.0);
+        let bright_material = Material::new(color, Albedo::new(0.9, 0.0, 0.0), 1.0);
+        let dark_material = Material::new(color, Albedo::new(0.2, 0.0, 0.0), 1.0);
 
-        let bright = shade(&scene, &bright_material, Vector3::zero(), normal, VIEW);
-        let dark = shade(&scene, &dark_material, Vector3::zero(), normal, VIEW);
+        let bright = shade_color(&scene, &bright_material, Vector3::zero(), normal, VIEW);
+        let dark = shade_color(&scene, &dark_material, Vector3::zero(), normal, VIEW);
 
         assert!(dark.r < bright.r);
         assert!(bright.r > 0);
@@ -165,7 +209,7 @@ mod tests {
         scene.lights[0].color = Rgb::new(1.0, 0.0, 0.0);
 
         let white = white_matte(1.0);
-        let lit = shade(&scene, &white, Vector3::zero(), Vector3::new(0.0, -1.0, 0.0), VIEW);
+        let lit = shade_color(&scene, &white, Vector3::zero(), Vector3::new(0.0, -1.0, 0.0), VIEW);
 
         assert_eq!(lit.r, 255);
         assert_eq!(lit.g, 0);
@@ -177,12 +221,12 @@ mod tests {
     fn specular_highlight_shows_up_head_on() {
         let scene = single_light_scene(1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
-        let shiny = Material::new(Color::new(30, 30, 30, 255), Albedo::new(0.2, 0.8), 32.0);
+        let shiny = Material::new(Color::new(30, 30, 30, 255), Albedo::new(0.2, 0.8, 0.0), 32.0);
 
         // luz justo arriba y ojo justo arriba: el rebote va derecho a la camara
-        let head_on = shade(&scene, &shiny, Vector3::zero(), normal, VIEW);
+        let head_on = shade_color(&scene, &shiny, Vector3::zero(), normal, VIEW);
         // mirando de costado, el brillo se apaga
-        let off_axis = shade(
+        let off_axis = shade_color(
             &scene,
             &shiny,
             Vector3::zero(),
@@ -202,11 +246,11 @@ mod tests {
         let off_axis = Vector3::new(0.5, -0.86, 0.0).normalized();
         let color = Color::new(30, 30, 30, 255);
 
-        let soft = Material::new(color, Albedo::new(0.2, 0.8), 8.0);
-        let sharp = Material::new(color, Albedo::new(0.2, 0.8), 128.0);
+        let soft = Material::new(color, Albedo::new(0.2, 0.8, 0.0), 8.0);
+        let sharp = Material::new(color, Albedo::new(0.2, 0.8, 0.0), 128.0);
 
-        let soft_edge = shade(&scene, &soft, Vector3::zero(), normal, off_axis);
-        let sharp_edge = shade(&scene, &sharp, Vector3::zero(), normal, off_axis);
+        let soft_edge = shade_color(&scene, &soft, Vector3::zero(), normal, off_axis);
+        let sharp_edge = shade_color(&scene, &sharp, Vector3::zero(), normal, off_axis);
 
         assert!(sharp_edge.r < soft_edge.r);
     }
@@ -218,7 +262,7 @@ mod tests {
         let normal = Vector3::new(0.0, -1.0, 0.0);
         let matte = Material::matte(Color::new(0, 0, 0, 255));
 
-        let lit = shade(&scene, &matte, Vector3::zero(), normal, VIEW);
+        let lit = shade_color(&scene, &matte, Vector3::zero(), normal, VIEW);
 
         assert_eq!(lit.r, 0, "el negro mate tiene que seguir negro");
     }
@@ -254,8 +298,8 @@ mod tests {
         let material = white_matte(1.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
 
-        let lit = shade(&lit_scene, &material, Vector3::zero(), normal, VIEW);
-        let dark = shade(&shadowed, &material, Vector3::zero(), normal, VIEW);
+        let lit = shade_color(&lit_scene, &material, Vector3::zero(), normal, VIEW);
+        let dark = shade_color(&shadowed, &material, Vector3::zero(), normal, VIEW);
 
         assert!(dark.r < lit.r);
         assert_eq!(dark.r, (0.1 * 255.0) as u8, "en sombra solo queda la ambiente");
@@ -266,7 +310,7 @@ mod tests {
     fn blockers_behind_the_light_do_not_cast_shadow() {
         let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, -9.0, 0.0), 0.5);
 
-        let lit = shade(
+        let lit = shade_color(
             &scene,
             &white_matte(1.0),
             Vector3::zero(),
@@ -286,8 +330,86 @@ mod tests {
         // punto en el polo de la esfera, del lado que mira a la luz
         let point = Vector3::new(0.0, -1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
-        let lit = shade(&scene, &white_matte(1.0), point, normal, VIEW);
+        let lit = shade_color(&scene, &white_matte(1.0), point, normal, VIEW);
 
         assert_eq!(lit.r, 255, "la esfera no deberia sombrearse a si misma");
+    }
+
+    /// Geometria de los tests de reflejo: un rayo que viaja hacia +Z pega en
+    /// el costado de la esfera del medio, y el rebote sale hacia -X, justo
+    /// donde esta la esfera roja.
+    const MIRROR_CENTER: Vector3 = Vector3 { x: 0.0, y: 0.0, z: -10.0 };
+    const RAY_ORIGIN: Vector3 = Vector3 { x: -0.707, y: 0.0, z: -14.0 };
+    const RAY_DIR: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 1.0 };
+
+    fn mirror_test_scene(center_material: Material) -> Scene {
+        let mut scene = white_light_scene(0.2);
+        scene.objects = vec![
+            // la que se refleja, fuera del camino del rayo directo
+            Sphere {
+                center: Vector3::new(-6.0, 0.0, -10.707),
+                radius: 2.0,
+                material: Material::matte(Color::new(255, 0, 0, 255)),
+            },
+            Sphere {
+                center: MIRROR_CENTER,
+                radius: 1.0,
+                material: center_material,
+            },
+        ];
+        scene.bvh = Bvh::build(&mut scene.objects);
+        scene
+    }
+
+    /// Un espejo tiene que traer el color de lo que tiene enfrente.
+    #[test]
+    fn mirror_picks_up_the_sphere_in_front_of_it() {
+        let gray = Color::new(120, 120, 120, 255);
+        let matte_scene = mirror_test_scene(Material::matte(gray));
+        let mirror_scene = mirror_test_scene(Material::mirror(gray));
+
+        let matte = trace(&matte_scene, RAY_ORIGIN, RAY_DIR, MAX_DEPTH).to_color();
+        let mirror = trace(&mirror_scene, RAY_ORIGIN, RAY_DIR, MAX_DEPTH).to_color();
+
+        // el gris mate tiene los tres canales parejos; el espejo tiene que
+        // inclinarse al rojo de la esfera que refleja
+        assert!(
+            mirror.r as i32 - mirror.b as i32 > matte.r as i32 - matte.b as i32,
+            "el espejo tendria que traer el rojo de enfrente: {mirror:?} vs {matte:?}"
+        );
+    }
+
+    /// Sin rebotes permitidos, un espejo solo muestra su luz directa.
+    #[test]
+    fn depth_zero_skips_the_reflection() {
+        let scene = mirror_test_scene(Material::mirror(Color::new(120, 120, 120, 255)));
+
+        let with_bounces = trace(&scene, RAY_ORIGIN, RAY_DIR, MAX_DEPTH).to_color();
+        let flat = trace(&scene, RAY_ORIGIN, RAY_DIR, 0).to_color();
+
+        assert!(
+            flat.r < with_bounces.r,
+            "sin rebotes no deberia llegar el rojo: {flat:?} vs {with_bounces:?}"
+        );
+    }
+
+    /// Dos espejos enfrentados se reflejan entre si sin colgar el trazado:
+    /// la profundidad corta la cadena.
+    #[test]
+    fn facing_mirrors_terminate() {
+        let mirror = Material::mirror(Color::new(200, 200, 200, 255));
+        let mut scene = white_light_scene(0.1);
+        scene.objects = vec![
+            Sphere { center: Vector3::new(-3.0, 0.0, -10.0), radius: 1.0, material: mirror },
+            Sphere { center: Vector3::new(3.0, 0.0, -10.0), radius: 1.0, material: mirror },
+        ];
+        scene.bvh = Bvh::build(&mut scene.objects);
+
+        let origin = Vector3::new(-3.0, 0.0, -4.0);
+        let direction = Vector3::new(0.0, 0.0, -1.0);
+
+        // si la recursion no cortara, esto no volveria nunca
+        let color = trace(&scene, origin, direction, MAX_DEPTH).to_color();
+        assert!(color.r > 0);
     }
 }

@@ -15,8 +15,7 @@ mod sphere;
 
 use camera::Camera;
 use framebuffer::Framebuffer;
-use render::BACKGROUND_COLOR;
-use scene::Scene;
+use scene::{Scene, BACKGROUND_COLOR};
 
 /// Que tan lejos arranca la camara respecto al tamano de la escena.
 const START_ZOOM: f32 = 1.6;

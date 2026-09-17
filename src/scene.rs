@@ -8,6 +8,9 @@ use crate::light::Light;
 use crate::material::Material;
 use crate::sphere::Sphere;
 
+/// Color del cielo: lo que devuelve un rayo que no pega con nada.
+pub const BACKGROUND_COLOR: Color = Color { r: 14, g: 27, b: 61, a: 255 };
+
 /// Piso de iluminacion. Sin ambiente, todo lo que no ve ninguna luz queda
 /// negro puro y el diorama se parte en dos mitades duras.
 const AMBIENT: Rgb = Rgb::new(0.16, 0.17, 0.22);
@@ -18,6 +21,8 @@ pub struct Scene {
     pub bvh: Bvh,
     pub lights: Vec<Light>,
     pub ambient: Rgb,
+    /// Lo que ve un rayo que se escapa de la escena.
+    pub background: Rgb,
     /// Centro y radio de la escena, para plantar la camara y las luces.
     pub center: Vector3,
     pub radius: f32,
@@ -35,6 +40,7 @@ impl Scene {
             bvh,
             lights: default_lights(center, radius),
             ambient: AMBIENT,
+            background: Rgb::from_color(BACKGROUND_COLOR),
             center,
             radius,
         }
@@ -50,6 +56,7 @@ impl Scene {
             bvh,
             lights,
             ambient,
+            background: Rgb::from_color(BACKGROUND_COLOR),
             center: Vector3::zero(),
             radius: 1.0,
         }
@@ -85,6 +92,9 @@ fn material_for(diffuse: Color) -> Material {
     match (diffuse.r, diffuse.g, diffuse.b) {
         // verde casi negro y los dos azules oscuros
         (21, 28, 26) | (14, 27, 61) | (1, 40, 83) => Material::matte(diffuse),
+        // el casi blanco de la paleta pasa a metal pulido: es el que devuelve
+        // la imagen del resto del diorama
+        (157, 172, 180) => Material::mirror(diffuse),
         _ => Material::plastic(diffuse),
     }
 }
@@ -309,6 +319,13 @@ mod tests {
         ] {
             assert_eq!(material_for(ink).albedo.specular, 0.0);
         }
+    }
+
+    /// El casi blanco es el unico espejo de la paleta.
+    #[test]
+    fn near_white_reflects_the_scene() {
+        assert!(material_for(Color::new(157, 172, 180, 255)).albedo.reflection > 0.0);
+        assert_eq!(material_for(Color::new(21, 28, 26, 255)).albedo.reflection, 0.0);
     }
 
     #[test]

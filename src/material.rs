@@ -6,21 +6,24 @@ use raylib::prelude::*;
 pub const DEFAULT_ALBEDO: f32 = 0.85;
 
 /// Como reparte el material la luz que recibe.
-/// Los dos pesos juntos no deberian pasar de 1: lo que sale por un lado no
-/// puede volver a salir por el otro sin inventar energia.
+/// Los pesos juntos no deberian pasar de 1: lo que sale por un camino no
+/// puede volver a salir por otro sin inventar energia.
 #[derive(Debug, Clone, Copy)]
 pub struct Albedo {
     /// Fraccion que rebota parejo en todas las direcciones (color del cuerpo).
     pub diffuse: f32,
     /// Fraccion que rebota como espejo y produce el brillo puntual.
     pub specular: f32,
+    /// Fraccion que devuelve la imagen de lo que tiene enfrente.
+    pub reflection: f32,
 }
 
 impl Albedo {
-    pub fn new(diffuse: f32, specular: f32) -> Self {
+    pub fn new(diffuse: f32, specular: f32, reflection: f32) -> Self {
         Albedo {
             diffuse: diffuse.clamp(0.0, 1.0),
             specular: specular.clamp(0.0, 1.0),
+            reflection: reflection.clamp(0.0, 1.0),
         }
     }
 }
@@ -44,12 +47,17 @@ impl Material {
 
     /// Material mate (tiza, yeso): rebota la luz parejo, sin brillo.
     pub fn matte(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(DEFAULT_ALBEDO, 0.0), 1.0)
+        Material::new(diffuse, Albedo::new(DEFAULT_ALBEDO, 0.0, 0.0), 1.0)
     }
 
     /// Material tipo plastico: mayormente difuso pero con un brillo chico
     /// que delata la forma de la esfera.
     pub fn plastic(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.8, 0.25), 48.0)
+        Material::new(diffuse, Albedo::new(0.8, 0.25, 0.0), 48.0)
+    }
+
+    /// Metal pulido: poco color propio y mucha imagen del entorno.
+    pub fn mirror(diffuse: Color) -> Self {
+        Material::new(diffuse, Albedo::new(0.15, 0.4, 0.6), 256.0)
     }
 }
