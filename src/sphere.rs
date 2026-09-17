@@ -1,6 +1,5 @@
 use raylib::prelude::*;
 use crate::material::Material;
-use crate::ray_intersect::{Intersect, RayIntersect};
 
 
 
@@ -41,25 +40,5 @@ impl Sphere {
             return Some(t1);
         }
         None
-    }
-}
-
-impl RayIntersect for Sphere {
-    fn ray_intersect(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Intersect{
-        match self.hit_distance(ray_origin, ray_direction) {
-            None => Intersect::empty(),
-            Some(distance) => {
-                let point = *ray_origin + *ray_direction * distance;
-                let normal = (point - self.center).normalized();
-
-                Intersect {
-                    distance,
-                    point,
-                    normal,
-                    material: self.material,
-                    is_intersecting: true,
-                }
-            }
-        }
     }
 }
