@@ -184,3 +184,29 @@ pub fn preset_scene() -> Vec<Sphere> {
     Sphere { center: Vector3::new(4.0727496, 0.85157496, -10.688196), radius: 0.19278325, material: Material { diffuse: Color::new(81, 107, 168, 255) } },
     ]
 }
+
+/// Esfera envolvente de toda la escena: centro y radio.
+/// Sirve para plantar la camara a una distancia que encuadre el diorama
+/// completo sin tener que hardcodear numeros.
+pub fn bounding_sphere(objects: &[Sphere]) -> (Vector3, f32) {
+    if objects.is_empty() {
+        return (Vector3::zero(), 1.0);
+    }
+
+    let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+    let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+
+    for object in objects {
+        let r = object.radius;
+        min.x = min.x.min(object.center.x - r);
+        min.y = min.y.min(object.center.y - r);
+        min.z = min.z.min(object.center.z - r);
+        max.x = max.x.max(object.center.x + r);
+        max.y = max.y.max(object.center.y + r);
+        max.z = max.z.max(object.center.z + r);
+    }
+
+    let center = (min + max) * 0.5;
+    let radius = (max - center).length().max(0.001);
+    (center, radius)
+}
