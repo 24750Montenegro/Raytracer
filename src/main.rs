@@ -1,6 +1,7 @@
 // main.rs
 use raylib::prelude::*;
 
+mod bvh;
 mod camera;
 mod framebuffer;
 mod material;
@@ -9,6 +10,7 @@ mod render;
 mod scene;
 mod sphere;
 
+use bvh::Bvh;
 use camera::Camera;
 use framebuffer::Framebuffer;
 use render::BACKGROUND_COLOR;
@@ -32,7 +34,9 @@ fn main() {
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
     framebuffer.set_background_color(BACKGROUND_COLOR);
 
-    let objects: Vec<Sphere> = scene::preset_scene();
+    let mut objects: Vec<Sphere> = scene::preset_scene();
+    // la escena no cambia nunca, asi que el BVH se arma una sola vez
+    let bvh = Bvh::build(&mut objects);
 
     // la camara arranca encuadrando la escena completa
     let (center, radius) = scene::bounding_sphere(&objects);
@@ -61,7 +65,7 @@ fn main() {
 
         if dirty {
             // render escribe TODOS los pixeles, no hace falta limpiar antes
-            render::render(&mut framebuffer, &objects, &camera.basis());
+            render::render(&mut framebuffer, &objects, &bvh, &camera.basis());
             dirty = false;
         }
 

@@ -4,6 +4,7 @@ use raylib::prelude::*;
 use std::sync::Mutex;
 use std::thread;
 
+use crate::bvh::Bvh;
 use crate::camera::CameraBasis;
 use crate::framebuffer::Framebuffer;
 use crate::projection;
@@ -16,19 +17,16 @@ pub const BACKGROUND_COLOR: Color = Color { r: 14, g: 27, b: 61, a: 255 };
 /// chicos y se paga el lock mas seguido. 8 filas es un punto sano.
 const TILE_ROWS: usize = 8;
 
-pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, objects: &[Sphere]) -> Color {
-    let mut zbuffer = f32::INFINITY;
-    let mut pixel_color = BACKGROUND_COLOR; //default para el color de fondo
-
-    for object in objects {
-        if let Some(distance) = object.hit_distance(ray_origin, ray_direction) {
-            if distance < zbuffer {
-                zbuffer = distance;
-                pixel_color = object.material.diffuse;
-            }
-        }
+pub fn cast_ray(
+    ray_origin: &Vector3,
+    ray_direction: &Vector3,
+    objects: &[Sphere],
+    bvh: &Bvh,
+) -> Color {
+    match bvh.nearest_hit(ray_origin, ray_direction, objects) {
+        Some(index) => objects[index].material.diffuse,
+        None => BACKGROUND_COLOR, //default para el color de fondo
     }
-    pixel_color
 }
 
 /// Traza un tile: las filas [y_start, y_start + filas del tile).
@@ -40,6 +38,7 @@ fn render_tile(
     width: u32,
     height: u32,
     objects: &[Sphere],
+    bvh: &Bvh,
     camera: &CameraBasis,
 ) {
     let aspect_ratio = width as f32 / height as f32;
@@ -70,7 +69,7 @@ fn render_tile(
             let inv_len = 1.0 / (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z).sqrt();
             let ray_direction = Vector3::new(dir.x * inv_len, dir.y * inv_len, dir.z * inv_len);
 
-            let color = cast_ray(&camera.origin, &ray_direction, objects);
+            let color = cast_ray(&camera.origin, &ray_direction, objects, bvh);
             pixel[0] = color.r;
             pixel[1] = color.g;
             pixel[2] = color.b;
@@ -81,7 +80,12 @@ fn render_tile(
     }
 }
 
-pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &CameraBasis) {
+pub fn render(
+    framebuffer: &mut Framebuffer,
+    objects: &[Sphere],
+    bvh: &Bvh,
+    camera: &CameraBasis,
+) {
     let width = framebuffer.width;
     let height = framebuffer.height;
     let row_bytes = width as usize * 4;
@@ -95,7 +99,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera
     let buffer = framebuffer.pixels_mut();
 
     if threads == 1 {
-        render_tile(buffer, 0, width, height, objects, camera);
+        render_tile(buffer, 0, width, height, objects, bvh, camera);
         return;
     }
 
@@ -118,7 +122,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera
                 // el lock solo protege sacar el siguiente tile, no el trazado
                 let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
                 let Some((y_start, tile)) = next else { break };
-                render_tile(tile, y_start, width, height, objects, camera);
+                render_tile(tile, y_start, width, height, objects, bvh, camera);
             });
         }
     });

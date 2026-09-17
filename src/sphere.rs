@@ -3,6 +3,7 @@ use crate::material::Material;
 
 
 
+#[derive(Clone, Copy)]
 pub struct Sphere {
     pub center: Vector3,
     pub radius: f32,
