@@ -15,6 +15,7 @@ mod sphere;
 
 use camera::Camera;
 use framebuffer::Framebuffer;
+use render::Quality;
 use scene::{Scene, BACKGROUND_COLOR};
 
 /// Que tan lejos arranca la camara respecto al tamano de la escena.
@@ -42,7 +43,8 @@ fn main() {
     let mut camera = Camera::new(scene.center, fit_distance * START_ZOOM);
 
     let mut last_mouse = window.get_mouse_position();
-    let mut dirty = true;
+    // arranca en false para que el primer frame ya salga en calidad final
+    let mut refined = false;
 
     println!("arrastrar con click izquierdo = girar la escena | scroll = zoom");
 
@@ -51,20 +53,20 @@ fn main() {
         let delta = mouse - last_mouse;
         last_mouse = mouse;
 
-        if window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
-            && camera.orbit(delta.x, delta.y)
-        {
-            dirty = true;
-        }
+        let orbited = window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
+            && camera.orbit(delta.x, delta.y);
+        let zoomed = camera.zoom(window.get_mouse_wheel_move());
 
-        if camera.zoom(window.get_mouse_wheel_move()) {
-            dirty = true;
-        }
-
-        if dirty {
-            // render escribe TODOS los pixeles, no hace falta limpiar antes
-            render::render(&mut framebuffer, &scene, &camera.basis());
-            dirty = false;
+        // render escribe TODOS los pixeles, no hace falta limpiar antes
+        if orbited || zoomed {
+            // mientras se mueve alcanza con el trazado grueso: la imagen
+            // cambia entera en el cuadro siguiente igual
+            render::render(&mut framebuffer, &scene, &camera.basis(), Quality::MOVING);
+            refined = false;
+        } else if !refined {
+            // ya quedo quieta: un unico pase fino y nada mas hasta que se mueva
+            render::render(&mut framebuffer, &scene, &camera.basis(), Quality::FULL);
+            refined = true;
         }
 
         framebuffer.swap_buffers(&mut window, &raylib_thread);
