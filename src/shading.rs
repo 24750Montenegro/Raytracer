@@ -6,11 +6,19 @@
 // del angulo entre la normal y la luz, que es lo que da la sensacion de
 // volumen; el especular agrega el reflejo puntual de la luz. El albedo
 // reparte cuanta luz sale por cada uno de esos dos caminos.
+//
+// Ademas cada luz se consulta con un rayo de sombra: si otra esfera se
+// interpone, esa luz no aporta nada a este punto.
 use raylib::prelude::*;
 
 use crate::color::Rgb;
 use crate::material::Material;
 use crate::scene::Scene;
+
+/// Cuanto se despega el rayo de sombra de la superficie. Sin este empujon
+/// la esfera se tapa a si misma por error de redondeo y sale el moteado
+/// clasico de las sombras mal hechas.
+const SHADOW_BIAS: f32 = 1e-3;
 
 /// Color final de un punto de la superficie.
 /// view_dir va del punto hacia la camara, ya normalizado.
@@ -28,12 +36,18 @@ pub fn shade(
     let mut specular = Rgb::new(0.0, 0.0, 0.0);
 
     for light in &scene.lights {
-        let (to_light, _distance) = light.direction_from(point);
+        let (to_light, distance) = light.direction_from(point);
 
         // ley del coseno: la superficie recibe menos luz cuanto mas de canto
         // le llega. De espaldas a la luz (producto punto <= 0) no recibe nada.
         let lambert = normal.dot(to_light);
         if lambert <= 0.0 {
+            continue;
+        }
+
+        // el orden importa: el coseno es una multiplicacion y el rayo de
+        // sombra es un recorrido del BVH, asi que primero se descarta barato
+        if in_shadow(scene, point, normal, to_light, distance) {
             continue;
         }
 
@@ -57,6 +71,19 @@ pub fn shade(
     color.to_color()
 }
 
+/// Hay otra esfera entre este punto y la luz?
+fn in_shadow(
+    scene: &Scene,
+    point: Vector3,
+    normal: Vector3,
+    to_light: Vector3,
+    distance: f32,
+) -> bool {
+    let origin = point + normal * SHADOW_BIAS;
+    // se corta en la luz: lo que queda detras de ella no hace sombra
+    scene.bvh.any_hit(&origin, &to_light, distance, &scene.objects)
+}
+
 /// Rebote de un vector contra la superficie, espejado sobre la normal.
 #[inline(always)]
 fn reflect(incident: Vector3, normal: Vector3) -> Vector3 {
@@ -66,9 +93,11 @@ fn reflect(incident: Vector3, normal: Vector3) -> Vector3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bvh::Bvh;
     use crate::light::Light;
     use crate::material::Albedo;
     use crate::scene::Scene;
+    use crate::sphere::Sphere;
 
     /// Camara imaginaria justo encima del punto, mirando hacia abajo.
     const VIEW: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
@@ -192,5 +221,73 @@ mod tests {
         let lit = shade(&scene, &matte, Vector3::zero(), normal, VIEW);
 
         assert_eq!(lit.r, 0, "el negro mate tiene que seguir negro");
+    }
+
+    fn white_light_scene(ambient: f32) -> Scene {
+        Scene::for_test(
+            vec![Light::new(
+                Vector3::new(0.0, -4.0, 0.0),
+                Rgb::new(1.0, 1.0, 1.0),
+                1.0,
+            )],
+            Rgb::new(ambient, ambient, ambient),
+        )
+    }
+
+    fn with_blocker(mut scene: Scene, center: Vector3, radius: f32) -> Scene {
+        scene.objects = vec![Sphere {
+            center,
+            radius,
+            material: Material::matte(Color::new(0, 0, 0, 255)),
+        }];
+        scene.bvh = Bvh::build(&mut scene.objects);
+        scene
+    }
+
+    /// Una esfera entre el punto y la luz lo deja en sombra: solo le queda
+    /// la ambiente.
+    #[test]
+    fn blocked_light_leaves_only_ambient() {
+        let lit_scene = white_light_scene(0.1);
+        let shadowed = with_blocker(white_light_scene(0.1), Vector3::new(0.0, -2.0, 0.0), 0.5);
+
+        let material = white_matte(1.0);
+        let normal = Vector3::new(0.0, -1.0, 0.0);
+
+        let lit = shade(&lit_scene, &material, Vector3::zero(), normal, VIEW);
+        let dark = shade(&shadowed, &material, Vector3::zero(), normal, VIEW);
+
+        assert!(dark.r < lit.r);
+        assert_eq!(dark.r, (0.1 * 255.0) as u8, "en sombra solo queda la ambiente");
+    }
+
+    /// Lo que esta por detras de la luz no hace sombra.
+    #[test]
+    fn blockers_behind_the_light_do_not_cast_shadow() {
+        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, -9.0, 0.0), 0.5);
+
+        let lit = shade(
+            &scene,
+            &white_matte(1.0),
+            Vector3::zero(),
+            Vector3::new(0.0, -1.0, 0.0),
+            VIEW,
+        );
+
+        assert_eq!(lit.r, 255);
+    }
+
+    /// El punto no se tapa a si mismo: la esfera sobre la que se sombrea
+    /// tambien esta en el BVH y el rayo de sombra arranca sobre su superficie.
+    #[test]
+    fn surface_does_not_shadow_itself() {
+        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, 0.0, 0.0), 1.0);
+
+        // punto en el polo de la esfera, del lado que mira a la luz
+        let point = Vector3::new(0.0, -1.0, 0.0);
+        let normal = Vector3::new(0.0, -1.0, 0.0);
+        let lit = shade(&scene, &white_matte(1.0), point, normal, VIEW);
+
+        assert_eq!(lit.r, 255, "la esfera no deberia sombrearse a si misma");
     }
 }
