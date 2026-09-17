@@ -28,7 +28,10 @@ pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, scene: &Scene) ->
     let point = *ray_origin + *ray_direction * distance;
     let normal = sphere.normal_at(point);
 
-    shading::shade(scene, &sphere.material, point, normal)
+    // del punto hacia la camara: el especular necesita saber desde donde se mira
+    let view_dir = -*ray_direction;
+
+    shading::shade(scene, &sphere.material, point, normal, view_dir)
 }
 
 /// Traza un tile: las filas [y_start, y_start + filas del tile).
