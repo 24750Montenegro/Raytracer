@@ -95,6 +95,8 @@ fn material_for(diffuse: Color) -> Material {
         // el casi blanco de la paleta pasa a metal pulido: es el que devuelve
         // la imagen del resto del diorama
         (157, 172, 180) => Material::mirror(diffuse),
+        // el amarillo intenso pasa a vidrio de color: deja ver lo que tiene atras
+        (183, 159, 42) => Material::glass(diffuse),
         _ => Material::plastic(diffuse),
     }
 }
@@ -326,6 +328,17 @@ mod tests {
     fn near_white_reflects_the_scene() {
         assert!(material_for(Color::new(157, 172, 180, 255)).albedo.reflection > 0.0);
         assert_eq!(material_for(Color::new(21, 28, 26, 255)).albedo.reflection, 0.0);
+    }
+
+    /// El amarillo intenso es el unico que deja pasar la luz.
+    #[test]
+    fn intense_yellow_is_the_glass_of_the_palette() {
+        let glass = material_for(Color::new(183, 159, 42, 255));
+        assert!(glass.albedo.refraction > 0.0);
+        assert!(glass.refractive_index > 1.0);
+
+        let opaque = material_for(Color::new(81, 107, 168, 255));
+        assert_eq!(opaque.albedo.refraction, 0.0);
     }
 
     #[test]

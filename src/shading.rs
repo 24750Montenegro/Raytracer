@@ -1,6 +1,6 @@
 // shading.rs
 // Modelo de iluminacion: difuso de Lambert, brillo especular de Phong y
-// reflejos por trazado recursivo.
+// reflejos y refracciones por trazado recursivo.
 //
 // Antes cada esfera se pintaba con su color plano, asi que una esfera se veia
 // como un circulo de un solo tono. Con Lambert el brillo de cada punto depende
@@ -11,9 +11,10 @@
 // Ademas cada luz se consulta con un rayo de sombra: si otra esfera se
 // interpone, esa luz no aporta nada a este punto.
 //
-// Las superficies reflectantes tiran un rayo mas desde el punto de impacto,
-// que a su vez puede pegar en otra superficie reflectante. Ese encadenado es
-// lo que limita MAX_DEPTH.
+// Las superficies reflectantes tiran un rayo mas desde el punto de impacto y
+// las transparentes otro que sigue para adentro doblado por la ley de Snell.
+// Cada uno de esos rayos puede volver a rebotar: ese encadenado es lo que
+// limita MAX_DEPTH.
 use raylib::prelude::*;
 
 use crate::color::Rgb;
@@ -42,16 +43,70 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
     let normal = sphere.normal_at(point);
     let material = &sphere.material;
 
-    // del punto hacia la camara: el especular necesita saber desde donde se mira
-    let mut color = shade(scene, material, point, normal, -direction);
+    // dentro de un cuerpo transparente el rayo sale por la cara de adentro:
+    // ahi la normal apunta al lado contrario del que hay que iluminar
+    let facing = if direction.dot(normal) < 0.0 { normal } else { -normal };
 
-    if depth > 0 && material.albedo.reflection > 0.0 {
-        let bounce = reflect(direction, normal).normalized();
-        let bounce_origin = point + normal * SURFACE_BIAS;
-        color = color + trace(scene, bounce_origin, bounce, depth - 1) * material.albedo.reflection;
+    // del punto hacia la camara: el especular necesita saber desde donde se mira
+    let mut color = shade(scene, material, point, facing, -direction);
+
+    if depth == 0 {
+        return color;
+    }
+
+    if material.albedo.reflection > 0.0 {
+        let bounce = reflect(direction, facing).normalized();
+        color = color
+            + trace(scene, offset(point, facing, bounce), bounce, depth - 1)
+                * material.albedo.reflection;
+    }
+
+    if material.albedo.refraction > 0.0 {
+        // en reflexion total interna no sale nada: el rayo se queda adentro
+        if let Some(through) = refract(direction, normal, material.refractive_index) {
+            let through = through.normalized();
+            color = color
+                + trace(scene, offset(point, facing, through), through, depth - 1)
+                    * material.albedo.refraction;
+        }
     }
 
     color
+}
+
+/// Despega el origen del rayo de la superficie, del lado hacia el que sale.
+#[inline(always)]
+fn offset(point: Vector3, normal: Vector3, direction: Vector3) -> Vector3 {
+    if direction.dot(normal) < 0.0 {
+        point - normal * SURFACE_BIAS
+    } else {
+        point + normal * SURFACE_BIAS
+    }
+}
+
+/// Direccion del rayo al cruzar la superficie, por la ley de Snell.
+/// Devuelve None en reflexion total interna: el rayo llega tan de canto desde
+/// adentro que no logra salir.
+fn refract(incident: Vector3, normal: Vector3, refractive_index: f32) -> Option<Vector3> {
+    let mut cos_incident = -incident.dot(normal).clamp(-1.0, 1.0);
+    let mut eta_from = crate::material::AIR_INDEX;
+    let mut eta_to = refractive_index;
+    let mut surface = normal;
+
+    if cos_incident < 0.0 {
+        // el rayo viene desde adentro del cuerpo: se invierte todo
+        cos_incident = -cos_incident;
+        std::mem::swap(&mut eta_from, &mut eta_to);
+        surface = -normal;
+    }
+
+    let eta = eta_from / eta_to;
+    let k = 1.0 - eta * eta * (1.0 - cos_incident * cos_incident);
+    if k < 0.0 {
+        return None;
+    }
+
+    Some(incident * eta + surface * (eta * cos_incident - k.sqrt()))
 }
 
 /// Luz directa en un punto de la superficie: ambiente, difuso y especular.
@@ -128,7 +183,7 @@ mod tests {
     use super::*;
     use crate::bvh::Bvh;
     use crate::light::Light;
-    use crate::material::Albedo;
+    use crate::material::{Albedo, GLASS_INDEX};
     use crate::scene::Scene;
     use crate::sphere::Sphere;
 
@@ -136,7 +191,7 @@ mod tests {
     const VIEW: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
 
     fn white_matte(albedo: f32) -> Material {
-        Material::new(Color::new(255, 255, 255, 255), Albedo::new(albedo, 0.0, 0.0), 1.0)
+        Material::new(Color::new(255, 255, 255, 255), Albedo::new(albedo, 0.0, 0.0, 0.0), 1.0)
     }
 
     /// Los tests miran colores de raylib: mas facil de leer que los f32.
@@ -193,8 +248,8 @@ mod tests {
         let scene = single_light_scene(1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
         let color = Color::new(200, 200, 200, 255);
-        let bright_material = Material::new(color, Albedo::new(0.9, 0.0, 0.0), 1.0);
-        let dark_material = Material::new(color, Albedo::new(0.2, 0.0, 0.0), 1.0);
+        let bright_material = Material::new(color, Albedo::new(0.9, 0.0, 0.0, 0.0), 1.0);
+        let dark_material = Material::new(color, Albedo::new(0.2, 0.0, 0.0, 0.0), 1.0);
 
         let bright = shade_color(&scene, &bright_material, Vector3::zero(), normal, VIEW);
         let dark = shade_color(&scene, &dark_material, Vector3::zero(), normal, VIEW);
@@ -221,7 +276,7 @@ mod tests {
     fn specular_highlight_shows_up_head_on() {
         let scene = single_light_scene(1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
-        let shiny = Material::new(Color::new(30, 30, 30, 255), Albedo::new(0.2, 0.8, 0.0), 32.0);
+        let shiny = Material::new(Color::new(30, 30, 30, 255), Albedo::new(0.2, 0.8, 0.0, 0.0), 32.0);
 
         // luz justo arriba y ojo justo arriba: el rebote va derecho a la camara
         let head_on = shade_color(&scene, &shiny, Vector3::zero(), normal, VIEW);
@@ -246,8 +301,8 @@ mod tests {
         let off_axis = Vector3::new(0.5, -0.86, 0.0).normalized();
         let color = Color::new(30, 30, 30, 255);
 
-        let soft = Material::new(color, Albedo::new(0.2, 0.8, 0.0), 8.0);
-        let sharp = Material::new(color, Albedo::new(0.2, 0.8, 0.0), 128.0);
+        let soft = Material::new(color, Albedo::new(0.2, 0.8, 0.0, 0.0), 8.0);
+        let sharp = Material::new(color, Albedo::new(0.2, 0.8, 0.0, 0.0), 128.0);
 
         let soft_edge = shade_color(&scene, &soft, Vector3::zero(), normal, off_axis);
         let sharp_edge = shade_color(&scene, &sharp, Vector3::zero(), normal, off_axis);
@@ -411,5 +466,87 @@ mod tests {
         // si la recursion no cortara, esto no volveria nunca
         let color = trace(&scene, origin, direction, MAX_DEPTH).to_color();
         assert!(color.r > 0);
+    }
+
+    /// De frente, el rayo cruza el vidrio sin doblarse.
+    #[test]
+    fn head_on_rays_pass_straight_through() {
+        let incident = Vector3::new(0.0, 0.0, -1.0);
+        let normal = Vector3::new(0.0, 0.0, 1.0);
+
+        let through = refract(incident, normal, GLASS_INDEX).expect("tenia que pasar");
+
+        assert!((through - incident).length() < 1e-5);
+    }
+
+    /// Al entrar en un medio mas denso el rayo se acerca a la normal.
+    #[test]
+    fn entering_glass_bends_toward_the_normal() {
+        let incident = Vector3::new(0.7071, 0.0, -0.7071);
+        let normal = Vector3::new(0.0, 0.0, 1.0);
+
+        let through = refract(incident, normal, GLASS_INDEX)
+            .expect("tenia que pasar")
+            .normalized();
+
+        // el angulo contra la normal se mide con el coseno: mas grande = mas
+        // cerca de la normal
+        let incident_cos = -incident.dot(normal);
+        let through_cos = -through.dot(normal);
+        assert!(through_cos > incident_cos, "{through_cos} vs {incident_cos}");
+    }
+
+    /// Desde adentro y muy de canto, el rayo no sale: reflexion total interna.
+    #[test]
+    fn grazing_rays_from_inside_do_not_escape() {
+        // normal apuntando hacia afuera, rayo saliendo casi paralelo a ella
+        let normal = Vector3::new(0.0, 0.0, 1.0);
+        let incident = Vector3::new(0.9994, 0.0, 0.0349).normalized();
+
+        assert!(refract(incident, normal, GLASS_INDEX).is_none());
+    }
+
+    /// Una esfera de vidrio deja ver lo que tiene detras; una mate no.
+    #[test]
+    fn glass_lets_the_sphere_behind_show_through() {
+        let red = Sphere {
+            center: Vector3::new(0.0, 0.0, -20.0),
+            radius: 6.0,
+            material: Material::matte(Color::new(255, 0, 0, 255)),
+        };
+        let tint = Color::new(180, 180, 180, 255);
+
+        let mut glass_scene = white_light_scene(0.2);
+        glass_scene.objects = vec![
+            red,
+            Sphere {
+                center: Vector3::new(0.0, 0.0, -10.0),
+                radius: 1.0,
+                material: Material::glass(tint),
+            },
+        ];
+        glass_scene.bvh = Bvh::build(&mut glass_scene.objects);
+
+        let mut solid_scene = white_light_scene(0.2);
+        solid_scene.objects = vec![
+            red,
+            Sphere {
+                center: Vector3::new(0.0, 0.0, -10.0),
+                radius: 1.0,
+                material: Material::matte(tint),
+            },
+        ];
+        solid_scene.bvh = Bvh::build(&mut solid_scene.objects);
+
+        let origin = Vector3::new(0.0, 0.0, -4.0);
+        let direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let glass = trace(&glass_scene, origin, direction, MAX_DEPTH).to_color();
+        let solid = trace(&solid_scene, origin, direction, MAX_DEPTH).to_color();
+
+        assert!(
+            glass.r as i32 - glass.b as i32 > solid.r as i32 - solid.b as i32,
+            "por el vidrio tendria que verse el rojo de atras: {glass:?} vs {solid:?}"
+        );
     }
 }
