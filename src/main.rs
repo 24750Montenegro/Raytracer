@@ -3,18 +3,20 @@ use raylib::prelude::*;
 
 mod bvh;
 mod camera;
+mod color;
 mod framebuffer;
+mod light;
 mod material;
 mod projection;
 mod render;
 mod scene;
+mod shading;
 mod sphere;
 
-use bvh::Bvh;
 use camera::Camera;
 use framebuffer::Framebuffer;
 use render::BACKGROUND_COLOR;
-use sphere::Sphere;
+use scene::Scene;
 
 /// Que tan lejos arranca la camara respecto al tamano de la escena.
 const START_ZOOM: f32 = 1.6;
@@ -34,14 +36,11 @@ fn main() {
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
     framebuffer.set_background_color(BACKGROUND_COLOR);
 
-    let mut objects: Vec<Sphere> = scene::preset_scene();
-    // la escena no cambia nunca, asi que el BVH se arma una sola vez
-    let bvh = Bvh::build(&mut objects);
+    let scene = Scene::preset();
 
     // la camara arranca encuadrando la escena completa
-    let (center, radius) = scene::bounding_sphere(&objects);
-    let fit_distance = radius / (projection::FOV / 2.0).tan();
-    let mut camera = Camera::new(center, fit_distance * START_ZOOM);
+    let fit_distance = scene.radius / (projection::FOV / 2.0).tan();
+    let mut camera = Camera::new(scene.center, fit_distance * START_ZOOM);
 
     let mut last_mouse = window.get_mouse_position();
     let mut dirty = true;
@@ -65,7 +64,7 @@ fn main() {
 
         if dirty {
             // render escribe TODOS los pixeles, no hace falta limpiar antes
-            render::render(&mut framebuffer, &objects, &bvh, &camera.basis());
+            render::render(&mut framebuffer, &scene, &camera.basis());
             dirty = false;
         }
 

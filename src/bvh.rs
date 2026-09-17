@@ -173,21 +173,22 @@ impl Bvh {
         node_index
     }
 
-    /// Esfera mas cercana que toca el rayo, o None si no pega con ninguna.
-    /// El indice es sobre la lista ya reordenada por build.
+    /// Esfera mas cercana que toca el rayo, con la distancia al impacto.
+    /// El indice es sobre la lista ya reordenada por build. Devolver la
+    /// distancia aca evita repetir el test de la esfera ganadora al sombrear.
     pub fn nearest_hit(
         &self,
         origin: &Vector3,
         direction: &Vector3,
         objects: &[Sphere],
-    ) -> Option<usize> {
+    ) -> Option<(usize, f32)> {
         if self.nodes.is_empty() {
             return None;
         }
 
         let inv_dir = Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
         let mut best_distance = f32::INFINITY;
-        let mut best: Option<usize> = None;
+        let mut best: Option<(usize, f32)> = None;
 
         let mut stack = [0u32; MAX_STACK];
         let mut depth = 0usize;
@@ -204,7 +205,7 @@ impl Bvh {
                         if let Some(distance) = sphere.hit_distance(origin, direction) {
                             if distance < best_distance {
                                 best_distance = distance;
-                                best = Some(first + offset);
+                                best = Some((first + offset, distance));
                             }
                         }
                     }
@@ -285,7 +286,7 @@ mod tests {
                     rng.range(-5.0, 5.0),
                 ),
                 radius: rng.range(0.05, 0.6),
-                material: Material { diffuse: Color::new(10, 20, 30, 255) },
+                material: Material::matte(Color::new(10, 20, 30, 255)),
             })
             .collect()
     }
@@ -304,8 +305,7 @@ mod tests {
         origin: &Vector3,
         direction: &Vector3,
     ) -> Option<f32> {
-        bvh.nearest_hit(origin, direction, objects)
-            .and_then(|i| objects[i].hit_distance(origin, direction))
+        bvh.nearest_hit(origin, direction, objects).map(|(_, d)| d)
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
         let mut objects = vec![Sphere {
             center: Vector3::new(0.0, 0.0, -5.0),
             radius: 1.0,
-            material: Material { diffuse: Color::new(1, 2, 3, 255) },
+            material: Material::matte(Color::new(1, 2, 3, 255)),
         }];
         let bvh = Bvh::build(&mut objects);
 
@@ -380,7 +380,7 @@ mod tests {
             .map(|i| Sphere {
                 center: Vector3::new(0.0, 0.0, -5.0),
                 radius: 0.1 + i as f32 * 0.01,
-                material: Material { diffuse: Color::new(0, 0, 0, 255) },
+                material: Material::matte(Color::new(0, 0, 0, 255)),
             })
             .collect();
         let bvh = Bvh::build(&mut objects);

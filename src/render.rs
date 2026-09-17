@@ -4,11 +4,11 @@ use raylib::prelude::*;
 use std::sync::Mutex;
 use std::thread;
 
-use crate::bvh::Bvh;
 use crate::camera::CameraBasis;
 use crate::framebuffer::Framebuffer;
 use crate::projection;
-use crate::sphere::Sphere;
+use crate::scene::Scene;
+use crate::shading;
 
 pub const BACKGROUND_COLOR: Color = Color { r: 14, g: 27, b: 61, a: 255 };
 
@@ -17,16 +17,18 @@ pub const BACKGROUND_COLOR: Color = Color { r: 14, g: 27, b: 61, a: 255 };
 /// chicos y se paga el lock mas seguido. 8 filas es un punto sano.
 const TILE_ROWS: usize = 8;
 
-pub fn cast_ray(
-    ray_origin: &Vector3,
-    ray_direction: &Vector3,
-    objects: &[Sphere],
-    bvh: &Bvh,
-) -> Color {
-    match bvh.nearest_hit(ray_origin, ray_direction, objects) {
-        Some(index) => objects[index].material.diffuse,
-        None => BACKGROUND_COLOR, //default para el color de fondo
-    }
+pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, scene: &Scene) -> Color {
+    let Some((index, distance)) = scene.bvh.nearest_hit(ray_origin, ray_direction, &scene.objects)
+    else {
+        return BACKGROUND_COLOR; //default para el color de fondo
+    };
+
+    // punto y normal solo para la esfera que gano, no para las descartadas
+    let sphere = &scene.objects[index];
+    let point = *ray_origin + *ray_direction * distance;
+    let normal = sphere.normal_at(point);
+
+    shading::shade(scene, &sphere.material, point, normal)
 }
 
 /// Traza un tile: las filas [y_start, y_start + filas del tile).
@@ -37,8 +39,7 @@ fn render_tile(
     y_start: u32,
     width: u32,
     height: u32,
-    objects: &[Sphere],
-    bvh: &Bvh,
+    scene: &Scene,
     camera: &CameraBasis,
 ) {
     let aspect_ratio = width as f32 / height as f32;
@@ -69,7 +70,7 @@ fn render_tile(
             let inv_len = 1.0 / (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z).sqrt();
             let ray_direction = Vector3::new(dir.x * inv_len, dir.y * inv_len, dir.z * inv_len);
 
-            let color = cast_ray(&camera.origin, &ray_direction, objects, bvh);
+            let color = cast_ray(&camera.origin, &ray_direction, scene);
             pixel[0] = color.r;
             pixel[1] = color.g;
             pixel[2] = color.b;
@@ -82,8 +83,7 @@ fn render_tile(
 
 pub fn render(
     framebuffer: &mut Framebuffer,
-    objects: &[Sphere],
-    bvh: &Bvh,
+    scene: &Scene,
     camera: &CameraBasis,
 ) {
     let width = framebuffer.width;
@@ -99,7 +99,7 @@ pub fn render(
     let buffer = framebuffer.pixels_mut();
 
     if threads == 1 {
-        render_tile(buffer, 0, width, height, objects, bvh, camera);
+        render_tile(buffer, 0, width, height, scene, camera);
         return;
     }
 
@@ -122,7 +122,7 @@ pub fn render(
                 // el lock solo protege sacar el siguiente tile, no el trazado
                 let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
                 let Some((y_start, tile)) = next else { break };
-                render_tile(tile, y_start, width, height, objects, bvh, camera);
+                render_tile(tile, y_start, width, height, scene, camera);
             });
         }
     });
