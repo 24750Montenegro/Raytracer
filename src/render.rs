@@ -161,7 +161,7 @@ mod tests {
     use crate::color::Rgb;
     use crate::light::Light;
     use crate::material::Material;
-    use crate::sphere::Sphere;
+    use crate::object::Object;
 
     /// Una esfera en el medio, para que el frame tenga fondo y objeto.
     fn test_scene() -> Scene {
@@ -173,11 +173,11 @@ mod tests {
             )],
             Rgb::new(0.1, 0.1, 0.1),
         );
-        scene.objects = vec![Sphere {
-            center: Vector3::new(0.0, 0.0, -10.0),
-            radius: 3.0,
-            material: Material::plastic(Color::new(200, 120, 60, 255)),
-        }];
+        scene.objects = vec![Object::sphere(
+            Vector3::new(0.0, 0.0, -10.0),
+            3.0,
+            Material::plastic(Color::new(200, 120, 60, 255)),
+        )];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
     }

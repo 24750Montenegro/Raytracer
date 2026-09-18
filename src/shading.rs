@@ -2,13 +2,13 @@
 // Modelo de iluminacion: difuso de Lambert, brillo especular de Phong y
 // reflejos y refracciones por trazado recursivo.
 //
-// Antes cada esfera se pintaba con su color plano, asi que una esfera se veia
+// Antes cada cuerpo se pintaba con su color plano, asi que una esfera se veia
 // como un circulo de un solo tono. Con Lambert el brillo de cada punto depende
 // del angulo entre la normal y la luz, que es lo que da la sensacion de
 // volumen; el especular agrega el reflejo puntual de la luz. El albedo
 // reparte cuanta luz sale por cada uno de esos dos caminos.
 //
-// Ademas cada luz se consulta con un rayo de sombra: si otra esfera se
+// Ademas cada luz se consulta con un rayo de sombra: si otro cuerpo se
 // interpone, esa luz no aporta nada a este punto.
 //
 // Las superficies reflectantes tiran un rayo mas desde el punto de impacto y
@@ -22,7 +22,7 @@ use crate::material::Material;
 use crate::scene::Scene;
 
 /// Cuanto se despegan de la superficie los rayos que salen de ella. Sin este
-/// empujon la esfera se toca a si misma por error de redondeo: en las sombras
+/// empujon el cuerpo se toca a si mismo por error de redondeo: en las sombras
 /// sale el moteado clasico y en los reflejos, manchas negras.
 const SURFACE_BIAS: f32 = 1e-3;
 
@@ -37,11 +37,11 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
         return scene.background;
     };
 
-    // punto y normal solo para la esfera que gano, no para las descartadas
-    let sphere = &scene.objects[index];
+    // punto y normal solo para el cuerpo que gano, no para los descartados
+    let object = &scene.objects[index];
     let point = origin + direction * distance;
-    let normal = sphere.normal_at(point);
-    let material = &sphere.material;
+    let normal = object.normal_at(point);
+    let material = object.material();
 
     // dentro de un cuerpo transparente el rayo sale por la cara de adentro:
     // ahi la normal apunta al lado contrario del que hay que iluminar
@@ -159,7 +159,7 @@ fn shade(
     base * diffuse * material.albedo.diffuse + specular * material.albedo.specular
 }
 
-/// Hay otra esfera entre este punto y la luz?
+/// Hay otro cuerpo entre este punto y la luz?
 fn in_shadow(
     scene: &Scene,
     point: Vector3,
@@ -184,8 +184,8 @@ mod tests {
     use crate::bvh::Bvh;
     use crate::light::Light;
     use crate::material::{Albedo, GLASS_INDEX};
+    use crate::object::Object;
     use crate::scene::Scene;
-    use crate::sphere::Sphere;
 
     /// Camara imaginaria justo encima del punto, mirando hacia abajo.
     const VIEW: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
@@ -334,11 +334,11 @@ mod tests {
     }
 
     fn with_blocker(mut scene: Scene, center: Vector3, radius: f32) -> Scene {
-        scene.objects = vec![Sphere {
+        scene.objects = vec![Object::sphere(
             center,
             radius,
-            material: Material::matte(Color::new(0, 0, 0, 255)),
-        }];
+            Material::matte(Color::new(0, 0, 0, 255)),
+        )];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
     }
@@ -401,16 +401,12 @@ mod tests {
         let mut scene = white_light_scene(0.2);
         scene.objects = vec![
             // la que se refleja, fuera del camino del rayo directo
-            Sphere {
-                center: Vector3::new(-6.0, 0.0, -10.707),
-                radius: 2.0,
-                material: Material::matte(Color::new(255, 0, 0, 255)),
-            },
-            Sphere {
-                center: MIRROR_CENTER,
-                radius: 1.0,
-                material: center_material,
-            },
+            Object::sphere(
+                Vector3::new(-6.0, 0.0, -10.707),
+                2.0,
+                Material::matte(Color::new(255, 0, 0, 255)),
+            ),
+            Object::sphere(MIRROR_CENTER, 1.0, center_material),
         ];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
@@ -455,8 +451,8 @@ mod tests {
         let mirror = Material::mirror(Color::new(200, 200, 200, 255));
         let mut scene = white_light_scene(0.1);
         scene.objects = vec![
-            Sphere { center: Vector3::new(-3.0, 0.0, -10.0), radius: 1.0, material: mirror },
-            Sphere { center: Vector3::new(3.0, 0.0, -10.0), radius: 1.0, material: mirror },
+            Object::sphere(Vector3::new(-3.0, 0.0, -10.0), 1.0, mirror),
+            Object::sphere(Vector3::new(3.0, 0.0, -10.0), 1.0, mirror),
         ];
         scene.bvh = Bvh::build(&mut scene.objects);
 
@@ -509,32 +505,24 @@ mod tests {
     /// Una esfera de vidrio deja ver lo que tiene detras; una mate no.
     #[test]
     fn glass_lets_the_sphere_behind_show_through() {
-        let red = Sphere {
-            center: Vector3::new(0.0, 0.0, -20.0),
-            radius: 6.0,
-            material: Material::matte(Color::new(255, 0, 0, 255)),
-        };
+        let red = Object::sphere(
+            Vector3::new(0.0, 0.0, -20.0),
+            6.0,
+            Material::matte(Color::new(255, 0, 0, 255)),
+        );
         let tint = Color::new(180, 180, 180, 255);
 
         let mut glass_scene = white_light_scene(0.2);
         glass_scene.objects = vec![
             red,
-            Sphere {
-                center: Vector3::new(0.0, 0.0, -10.0),
-                radius: 1.0,
-                material: Material::glass(tint),
-            },
+            Object::sphere(Vector3::new(0.0, 0.0, -10.0), 1.0, Material::glass(tint)),
         ];
         glass_scene.bvh = Bvh::build(&mut glass_scene.objects);
 
         let mut solid_scene = white_light_scene(0.2);
         solid_scene.objects = vec![
             red,
-            Sphere {
-                center: Vector3::new(0.0, 0.0, -10.0),
-                radius: 1.0,
-                material: Material::matte(tint),
-            },
+            Object::sphere(Vector3::new(0.0, 0.0, -10.0), 1.0, Material::matte(tint)),
         ];
         solid_scene.bvh = Bvh::build(&mut solid_scene.objects);
 

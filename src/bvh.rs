@@ -1,17 +1,17 @@
 // bvh.rs
-// Arbol de volumenes envolventes (BVH) sobre las esferas de la escena.
+// Arbol de volumenes envolventes (BVH) sobre los cuerpos de la escena.
 //
-// Sin esto cada rayo prueba TODAS las esferas: 1000x1000 pixeles por 173
-// esferas son ~173 millones de tests por frame, y con la camara moviendose
-// hay que rehacerlos en cada cuadro. El BVH deja cada rayo en unos pocos
-// tests. Como la escena es estatica, se construye una sola vez: orbitar la
-// camara no lo invalida.
+// Sin esto cada rayo prueba TODOS los cuerpos: 1000x1000 pixeles por casi 200
+// cuerpos son cientos de millones de tests por frame, y con la camara
+// moviendose hay que rehacerlos en cada cuadro. El BVH deja cada rayo en unos
+// pocos tests. Como la escena es estatica, se construye una sola vez: orbitar
+// la camara no lo invalida.
 use raylib::prelude::*;
 
-use crate::sphere::Sphere;
+use crate::object::Object;
 
-/// Maximo de esferas por hoja. Con pocas esferas ya no compensa seguir
-/// partiendo: probarlas de corrido es mas barato que bajar otro nivel.
+/// Maximo de cuerpos por hoja. Con pocos ya no compensa seguir partiendo:
+/// probarlos de corrido es mas barato que bajar otro nivel.
 const MAX_LEAF_SIZE: usize = 4;
 /// Profundidad maxima soportada por la pila de recorrido.
 const MAX_STACK: usize = 64;
@@ -30,12 +30,9 @@ impl Aabb {
         }
     }
 
-    fn from_sphere(sphere: &Sphere) -> Self {
-        let r = Vector3::new(sphere.radius, sphere.radius, sphere.radius);
-        Aabb {
-            min: sphere.center - r,
-            max: sphere.center + r,
-        }
+    fn from_object(object: &Object) -> Self {
+        let (min, max) = object.bounds();
+        Aabb { min, max }
     }
 
     fn grow(&mut self, other: &Aabb) {
@@ -97,7 +94,7 @@ impl Aabb {
 
 /// Nodo aplanado. count == 0 marca nodo interno: el hijo izquierdo es el
 /// siguiente del vector y payload apunta al derecho. En las hojas payload es
-/// la primera esfera y count cuantas van seguidas.
+/// el primer cuerpo y count cuantos van seguidos.
 #[derive(Clone, Copy)]
 struct Node {
     bounds: Aabb,
@@ -110,9 +107,9 @@ pub struct Bvh {
 }
 
 impl Bvh {
-    /// Construye el arbol y reordena las esferas para que cada hoja quede en
+    /// Construye el arbol y reordena los cuerpos para que cada hoja quede en
     /// posiciones contiguas, asi el recorrido lee memoria seguida.
-    pub fn build(objects: &mut Vec<Sphere>) -> Self {
+    pub fn build(objects: &mut Vec<Object>) -> Self {
         let mut bvh = Bvh { nodes: Vec::new() };
         if objects.is_empty() {
             return bvh;
@@ -122,7 +119,7 @@ impl Bvh {
         bvh.nodes.reserve(2 * objects.len());
         bvh.build_node(objects, &mut order, 0, objects.len());
 
-        let sorted: Vec<Sphere> = order.iter().map(|&i| objects[i as usize]).collect();
+        let sorted: Vec<Object> = order.iter().map(|&i| objects[i as usize]).collect();
         *objects = sorted;
         bvh
     }
@@ -130,7 +127,7 @@ impl Bvh {
     /// Arma el nodo que cubre order[start..end] y devuelve su indice.
     fn build_node(
         &mut self,
-        objects: &[Sphere],
+        objects: &[Object],
         order: &mut [u32],
         start: usize,
         end: usize,
@@ -138,9 +135,9 @@ impl Bvh {
         let mut bounds = Aabb::empty();
         let mut centroids = Aabb::empty();
         for &index in &order[start..end] {
-            let sphere = &objects[index as usize];
-            bounds.grow(&Aabb::from_sphere(sphere));
-            centroids.grow_point(sphere.center);
+            let object = &objects[index as usize];
+            bounds.grow(&Aabb::from_object(object));
+            centroids.grow_point(object.center());
         }
 
         let node_index = self.nodes.len() as u32;
@@ -160,7 +157,7 @@ impl Bvh {
         let split = (axis_value(centroids.min, axis) + axis_value(centroids.max, axis)) * 0.5;
 
         let mut mid = partition(objects, order, start, end, axis, split);
-        // esferas apiladas en el mismo centro: partir a la mitad y seguir
+        // cuerpos apilados en el mismo centro: partir a la mitad y seguir
         if mid == start || mid == end {
             mid = (start + end) / 2;
         }
@@ -173,14 +170,14 @@ impl Bvh {
         node_index
     }
 
-    /// Esfera mas cercana que toca el rayo, con la distancia al impacto.
+    /// Cuerpo mas cercano que toca el rayo, con la distancia al impacto.
     /// El indice es sobre la lista ya reordenada por build. Devolver la
-    /// distancia aca evita repetir el test de la esfera ganadora al sombrear.
+    /// distancia aca evita repetir el test del cuerpo ganador al sombrear.
     pub fn nearest_hit(
         &self,
         origin: &Vector3,
         direction: &Vector3,
-        objects: &[Sphere],
+        objects: &[Object],
     ) -> Option<(usize, f32)> {
         if self.nodes.is_empty() {
             return None;
@@ -201,8 +198,8 @@ impl Bvh {
                 if node.count > 0 {
                     let first = node.payload as usize;
                     let last = first + node.count as usize;
-                    for (offset, sphere) in objects[first..last].iter().enumerate() {
-                        if let Some(distance) = sphere.hit_distance(origin, direction) {
+                    for (offset, object) in objects[first..last].iter().enumerate() {
+                        if let Some(distance) = object.hit_distance(origin, direction, &inv_dir) {
                             if distance < best_distance {
                                 best_distance = distance;
                                 best = Some((first + offset, distance));
@@ -228,15 +225,15 @@ impl Bvh {
 
     /// Hay algo tapando el tramo entre origin y una distancia dada?
     ///
-    /// A diferencia de nearest_hit no interesa cual es la esfera mas cercana
-    /// ni a que distancia: con encontrar una sola que estorbe alcanza, asi
-    /// que corta apenas la encuentra. Es lo que necesitan los rayos de sombra.
+    /// A diferencia de nearest_hit no interesa cual es el cuerpo mas cercano
+    /// ni a que distancia: con encontrar uno solo que estorbe alcanza, asi
+    /// que corta apenas lo encuentra. Es lo que necesitan los rayos de sombra.
     pub fn any_hit(
         &self,
         origin: &Vector3,
         direction: &Vector3,
         max_distance: f32,
-        objects: &[Sphere],
+        objects: &[Object],
     ) -> bool {
         if self.nodes.is_empty() {
             return false;
@@ -255,8 +252,8 @@ impl Bvh {
                 if node.count > 0 {
                     let first = node.payload as usize;
                     let last = first + node.count as usize;
-                    for sphere in &objects[first..last] {
-                        if let Some(distance) = sphere.hit_distance(origin, direction) {
+                    for object in &objects[first..last] {
+                        if let Some(distance) = object.hit_distance(origin, direction, &inv_dir) {
                             if distance < max_distance {
                                 return true;
                             }
@@ -288,10 +285,10 @@ fn axis_value(v: Vector3, axis: usize) -> f32 {
     }
 }
 
-/// Deja a la izquierda las esferas con centro por debajo de split y devuelve
+/// Deja a la izquierda los cuerpos con centro por debajo de split y devuelve
 /// donde quedo el corte.
 fn partition(
-    objects: &[Sphere],
+    objects: &[Object],
     order: &mut [u32],
     start: usize,
     end: usize,
@@ -300,7 +297,7 @@ fn partition(
 ) -> usize {
     let mut mid = start;
     for i in start..end {
-        let center = objects[order[i] as usize].center;
+        let center = objects[order[i] as usize].center();
         if axis_value(center, axis) < split {
             order.swap(i, mid);
             mid += 1;
@@ -328,32 +325,39 @@ mod tests {
         }
     }
 
-    fn random_scene(count: usize, seed: u32) -> Vec<Sphere> {
+    /// Mezcla las dos formas: el BVH no tiene que distinguirlas.
+    fn random_scene(count: usize, seed: u32) -> Vec<Object> {
         let mut rng = Lcg(seed);
         (0..count)
-            .map(|_| Sphere {
-                center: Vector3::new(
+            .map(|i| {
+                let center = Vector3::new(
                     rng.range(-5.0, 5.0),
                     rng.range(-5.0, 5.0),
                     rng.range(-5.0, 5.0),
-                ),
-                radius: rng.range(0.05, 0.6),
-                material: Material::matte(Color::new(10, 20, 30, 255)),
+                );
+                let size = rng.range(0.05, 0.6);
+                let material = Material::matte(Color::new(10, 20, 30, 255));
+                if i % 2 == 0 {
+                    Object::sphere(center, size, material)
+                } else {
+                    Object::cube(center, 2.0 * size, material)
+                }
             })
             .collect()
     }
 
-    /// La version lenta: probar todas las esferas. Es la referencia.
-    fn brute_force(objects: &[Sphere], origin: &Vector3, direction: &Vector3) -> Option<f32> {
+    /// La version lenta: probar todos los cuerpos. Es la referencia.
+    fn brute_force(objects: &[Object], origin: &Vector3, direction: &Vector3) -> Option<f32> {
+        let inv_dir = Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
         objects
             .iter()
-            .filter_map(|s| s.hit_distance(origin, direction))
+            .filter_map(|o| o.hit_distance(origin, direction, &inv_dir))
             .fold(None, |best: Option<f32>, d| Some(best.map_or(d, |b| b.min(d))))
     }
 
     fn bvh_distance(
         bvh: &Bvh,
-        objects: &[Sphere],
+        objects: &[Object],
         origin: &Vector3,
         direction: &Vector3,
     ) -> Option<f32> {
@@ -399,11 +403,18 @@ mod tests {
     /// cajas tiene que seguir funcionando.
     #[test]
     fn axis_aligned_rays_still_hit() {
-        let mut objects = vec![Sphere {
-            center: Vector3::new(0.0, 0.0, -5.0),
-            radius: 1.0,
-            material: Material::matte(Color::new(1, 2, 3, 255)),
-        }];
+        let mut objects = vec![
+            Object::sphere(
+                Vector3::new(0.0, 0.0, -5.0),
+                1.0,
+                Material::matte(Color::new(1, 2, 3, 255)),
+            ),
+            Object::cube(
+                Vector3::new(4.0, 0.0, -5.0),
+                2.0,
+                Material::matte(Color::new(1, 2, 3, 255)),
+            ),
+        ];
         let bvh = Bvh::build(&mut objects);
 
         let origin = Vector3::zero();
@@ -411,28 +422,41 @@ mod tests {
         let hit = bvh_distance(&bvh, &objects, &origin, &direction).expect("tenia que pegar");
         assert!((hit - 4.0).abs() < 1e-4);
 
+        // el cubo, de canto: el rayo viaja en X justo por su altura y le pega
+        // en la cara de x = 5 antes de llegar a la esfera
+        let sideways = bvh_distance(
+            &bvh,
+            &objects,
+            &Vector3::new(9.0, 0.0, -5.0),
+            &Vector3::new(-1.0, 0.0, 0.0),
+        )
+        .expect("tenia que pegar en el cubo");
+        assert!((sideways - 4.0).abs() < 1e-4, "{sideways}");
+
         // mirando al otro lado no hay nada
         assert!(bvh_distance(&bvh, &objects, &origin, &Vector3::new(0.0, 0.0, 1.0)).is_none());
     }
 
     #[test]
     fn empty_scene_never_hits() {
-        let mut objects: Vec<Sphere> = Vec::new();
+        let mut objects: Vec<Object> = Vec::new();
         let bvh = Bvh::build(&mut objects);
         assert!(bvh
             .nearest_hit(&Vector3::zero(), &Vector3::new(0.0, 0.0, -1.0), &objects)
             .is_none());
     }
 
-    /// Esferas todas en el mismo centro: la particion por punto medio no
+    /// Cuerpos todos en el mismo centro: la particion por punto medio no
     /// separa nada y tiene que caer en el corte a la mitad sin colgarse.
     #[test]
     fn degenerate_split_terminates() {
-        let mut objects: Vec<Sphere> = (0..32)
-            .map(|i| Sphere {
-                center: Vector3::new(0.0, 0.0, -5.0),
-                radius: 0.1 + i as f32 * 0.01,
-                material: Material::matte(Color::new(0, 0, 0, 255)),
+        let mut objects: Vec<Object> = (0..32)
+            .map(|i| {
+                Object::sphere(
+                    Vector3::new(0.0, 0.0, -5.0),
+                    0.1 + i as f32 * 0.01,
+                    Material::matte(Color::new(0, 0, 0, 255)),
+                )
             })
             .collect();
         let bvh = Bvh::build(&mut objects);
@@ -441,7 +465,7 @@ mod tests {
         assert!(hit.is_some());
     }
 
-    /// any_hit tiene que coincidir con revisar todas las esferas a mano.
+    /// any_hit tiene que coincidir con revisar todos los cuerpos a mano.
     #[test]
     fn any_hit_matches_brute_force() {
         let mut objects = random_scene(120, 21);
@@ -478,11 +502,11 @@ mod tests {
     /// Lo que queda mas lejos que el limite no tapa nada.
     #[test]
     fn any_hit_ignores_blockers_past_the_limit() {
-        let mut objects = vec![Sphere {
-            center: Vector3::new(0.0, 0.0, -5.0),
-            radius: 1.0,
-            material: Material::matte(Color::new(1, 2, 3, 255)),
-        }];
+        let mut objects = vec![Object::sphere(
+            Vector3::new(0.0, 0.0, -5.0),
+            1.0,
+            Material::matte(Color::new(1, 2, 3, 255)),
+        )];
         let bvh = Bvh::build(&mut objects);
 
         let origin = Vector3::zero();
