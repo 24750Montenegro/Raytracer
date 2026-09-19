@@ -6,9 +6,16 @@
 use raylib::prelude::*;
 use std::f32::consts::PI;
 
+use crate::projection;
+
 /// Limite del pitch para que la camara no cruce los polos y la base no se
 /// degenere (arriba y forward paralelos).
 const PITCH_LIMIT: f32 = PI / 2.0 - 0.01;
+
+/// Un poco mas de 1 para que el terreno no toque los bordes del cuadro.
+const START_ZOOM: f32 = 1.1;
+/// Inclinacion inicial: de canto el terreno es una fila de bloques.
+const START_PITCH: f32 = 0.55;
 const MIN_DISTANCE: f32 = 0.5;
 const MAX_DISTANCE: f32 = 200.0;
 /// Radianes por pixel de arrastre.
@@ -43,6 +50,20 @@ impl Camera {
             pitch: 0.0,
             distance: distance.clamp(MIN_DISTANCE, MAX_DISTANCE),
         }
+    }
+
+    /// Inclina la camara sin pasar por el mouse.
+    pub fn set_pitch(&mut self, pitch: f32) {
+        self.pitch = pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    }
+
+    /// Como arranca la vista: la distancia sale del tamano de la escena, asi
+    /// que un mapa mas grande se encuadra solo.
+    pub fn framing(target: Vector3, radius: f32) -> Self {
+        let fit_distance = radius / (projection::FOV / 2.0).tan();
+        let mut camera = Camera::new(target, fit_distance * START_ZOOM);
+        camera.set_pitch(START_PITCH);
+        camera
     }
 
     /// Posicion de la camara en coordenadas esfericas alrededor del target.
@@ -136,6 +157,16 @@ mod tests {
         assert!(camera.orbit(0.0, -100.0));
         assert!(camera.pitch > 0.0);
         assert!(camera.position().y < 0.0);
+    }
+
+    #[test]
+    fn set_pitch_raises_the_camera_and_stays_short_of_the_pole() {
+        let mut camera = Camera::new(Vector3::zero(), 4.0);
+        camera.set_pitch(0.55);
+        assert!(camera.position().y < 0.0, "pitch positivo tiene que subirla");
+
+        camera.set_pitch(PI);
+        assert!(camera.pitch <= PITCH_LIMIT);
     }
 
     #[test]

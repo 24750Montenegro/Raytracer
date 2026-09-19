@@ -8,20 +8,18 @@ mod cube;
 mod framebuffer;
 mod light;
 mod material;
+mod noise;
 mod object;
 mod projection;
 mod render;
 mod scene;
 mod shading;
-mod sphere;
+mod terrain;
 
 use camera::Camera;
 use framebuffer::Framebuffer;
 use render::Quality;
 use scene::{Scene, BACKGROUND_COLOR};
-
-/// Que tan lejos arranca la camara respecto al tamano de la escena.
-const START_ZOOM: f32 = 1.6;
 
 fn main() {
     let window_width = 1000;
@@ -38,16 +36,16 @@ fn main() {
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
     framebuffer.set_background_color(BACKGROUND_COLOR);
 
-    let scene = Scene::preset();
+    let scene = Scene::random();
 
-    // la camara arranca encuadrando la escena completa
-    let fit_distance = scene.radius / (projection::FOV / 2.0).tan();
-    let mut camera = Camera::new(scene.center, fit_distance * START_ZOOM);
+    // encuadra el terreno completo, visto desde arriba
+    let mut camera = Camera::framing(scene.center, scene.radius);
 
     let mut last_mouse = window.get_mouse_position();
     // arranca en false para que el primer frame ya salga en calidad final
     let mut refined = false;
 
+    println!("semilla del terreno: {}", scene.seed);
     println!("arrastrar con click izquierdo = girar la escena | scroll = zoom");
 
     while !window.window_should_close() {

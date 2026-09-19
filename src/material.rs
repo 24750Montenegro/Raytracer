@@ -7,8 +7,8 @@ pub const DEFAULT_ALBEDO: f32 = 0.85;
 
 /// Indice de refraccion del aire: la luz no se dobla.
 pub const AIR_INDEX: f32 = 1.0;
-/// El del vidrio comun.
-pub const GLASS_INDEX: f32 = 1.5;
+/// El del agua.
+pub const WATER_INDEX: f32 = 1.33;
 
 /// Como reparte el material la luz que recibe.
 /// Los pesos juntos no deberian pasar de 1: lo que sale por un camino no
@@ -91,14 +91,15 @@ impl Material {
         Material::new(diffuse, Albedo::new(0.15, 0.4, 0.6, 0.0), 256.0)
     }
 
-    /// Vidrio de color: casi no tiene color propio, deja pasar casi todo y
-    /// guarda un reflejo debil en el borde.
-    pub fn glass(diffuse: Color) -> Self {
+    /// Agua: el unico material de la escena que deja pasar la luz. Transmite
+    /// poco a proposito. Dejando pasar casi todo toma el color de lo que
+    /// tiene detras, que es el fondo de la laguna, y sale casi negra.
+    pub fn water(diffuse: Color) -> Self {
         Material::transparent(
             diffuse,
-            Albedo::new(0.08, 0.5, 0.12, 0.8),
-            128.0,
-            GLASS_INDEX,
+            Albedo::new(0.35, 0.35, 0.25, 0.35),
+            96.0,
+            WATER_INDEX,
         )
     }
 }

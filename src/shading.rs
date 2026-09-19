@@ -2,8 +2,8 @@
 // Modelo de iluminacion: difuso de Lambert, brillo especular de Phong y
 // reflejos y refracciones por trazado recursivo.
 //
-// Antes cada cuerpo se pintaba con su color plano, asi que una esfera se veia
-// como un circulo de un solo tono. Con Lambert el brillo de cada punto depende
+// Antes cada cuerpo se pintaba con su color plano, asi que un bloque se veia
+// como una silueta de un solo tono. Con Lambert el brillo de cada punto depende
 // del angulo entre la normal y la luz, que es lo que da la sensacion de
 // volumen; el especular agrega el reflejo puntual de la luz. El albedo
 // reparte cuanta luz sale por cada uno de esos dos caminos.
@@ -183,7 +183,7 @@ mod tests {
     use super::*;
     use crate::bvh::Bvh;
     use crate::light::Light;
-    use crate::material::{Albedo, GLASS_INDEX};
+    use crate::material::{Albedo, WATER_INDEX};
     use crate::object::Object;
     use crate::scene::Scene;
 
@@ -333,22 +333,22 @@ mod tests {
         )
     }
 
-    fn with_blocker(mut scene: Scene, center: Vector3, radius: f32) -> Scene {
-        scene.objects = vec![Object::sphere(
+    fn with_blocker(mut scene: Scene, center: Vector3, size: f32) -> Scene {
+        scene.objects = vec![Object::cube(
             center,
-            radius,
+            size,
             Material::matte(Color::new(0, 0, 0, 255)),
         )];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
     }
 
-    /// Una esfera entre el punto y la luz lo deja en sombra: solo le queda
+    /// Un bloque entre el punto y la luz lo deja en sombra: solo le queda
     /// la ambiente.
     #[test]
     fn blocked_light_leaves_only_ambient() {
         let lit_scene = white_light_scene(0.1);
-        let shadowed = with_blocker(white_light_scene(0.1), Vector3::new(0.0, -2.0, 0.0), 0.5);
+        let shadowed = with_blocker(white_light_scene(0.1), Vector3::new(0.0, -2.0, 0.0), 1.0);
 
         let material = white_matte(1.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
@@ -360,10 +360,32 @@ mod tests {
         assert_eq!(dark.r, (0.1 * 255.0) as u8, "en sombra solo queda la ambiente");
     }
 
+    /// El agua deja pasar la luz: lo que tiene debajo se sigue viendo.
+    #[test]
+    fn transparent_blockers_let_the_light_through() {
+        let mut scene = white_light_scene(0.0);
+        scene.objects = vec![Object::cube(
+            Vector3::new(0.0, -2.0, 0.0),
+            1.0,
+            Material::water(Color::new(60, 120, 190, 255)),
+        )];
+        scene.bvh = Bvh::build(&mut scene.objects);
+
+        let lit = shade_color(
+            &scene,
+            &white_matte(1.0),
+            Vector3::zero(),
+            Vector3::new(0.0, -1.0, 0.0),
+            VIEW,
+        );
+
+        assert_eq!(lit.r, 255, "el agua no tendria que apagar el fondo");
+    }
+
     /// Lo que esta por detras de la luz no hace sombra.
     #[test]
     fn blockers_behind_the_light_do_not_cast_shadow() {
-        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, -9.0, 0.0), 0.5);
+        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, -9.0, 0.0), 1.0);
 
         let lit = shade_color(
             &scene,
@@ -376,37 +398,37 @@ mod tests {
         assert_eq!(lit.r, 255);
     }
 
-    /// El punto no se tapa a si mismo: la esfera sobre la que se sombrea
+    /// El punto no se tapa a si mismo: el bloque sobre el que se sombrea
     /// tambien esta en el BVH y el rayo de sombra arranca sobre su superficie.
     #[test]
     fn surface_does_not_shadow_itself() {
-        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, 0.0, 0.0), 1.0);
+        let scene = with_blocker(white_light_scene(0.0), Vector3::new(0.0, 0.0, 0.0), 2.0);
 
-        // punto en el polo de la esfera, del lado que mira a la luz
+        // en el medio de la cara de arriba, la que mira a la luz
         let point = Vector3::new(0.0, -1.0, 0.0);
         let normal = Vector3::new(0.0, -1.0, 0.0);
         let lit = shade_color(&scene, &white_matte(1.0), point, normal, VIEW);
 
-        assert_eq!(lit.r, 255, "la esfera no deberia sombrearse a si misma");
+        assert_eq!(lit.r, 255, "el bloque no deberia sombrearse a si mismo");
     }
 
-    /// Geometria de los tests de reflejo: un rayo que viaja hacia +Z pega en
-    /// el costado de la esfera del medio, y el rebote sale hacia -X, justo
-    /// donde esta la esfera roja.
+    /// Geometria de los tests de reflejo. El rayo entra en diagonal porque
+    /// contra una cara plana uno alineado a los ejes rebota por donde vino:
+    /// pega en la cara del frente del espejo y sale hacia el bloque rojo.
     const MIRROR_CENTER: Vector3 = Vector3 { x: 0.0, y: 0.0, z: -10.0 };
-    const RAY_ORIGIN: Vector3 = Vector3 { x: -0.707, y: 0.0, z: -14.0 };
-    const RAY_DIR: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 1.0 };
+    const RAY_ORIGIN: Vector3 = Vector3 { x: 4.0, y: 0.0, z: -5.0 };
+    const RAY_DIR: Vector3 = Vector3 { x: -0.7071, y: 0.0, z: -0.7071 };
 
     fn mirror_test_scene(center_material: Material) -> Scene {
         let mut scene = white_light_scene(0.2);
         scene.objects = vec![
-            // la que se refleja, fuera del camino del rayo directo
-            Object::sphere(
-                Vector3::new(-6.0, 0.0, -10.707),
-                2.0,
+            // el que se refleja, fuera del camino del rayo directo
+            Object::cube(
+                Vector3::new(-4.24, 0.0, -4.76),
+                3.0,
                 Material::matte(Color::new(255, 0, 0, 255)),
             ),
-            Object::sphere(MIRROR_CENTER, 1.0, center_material),
+            Object::cube(MIRROR_CENTER, 2.0, center_material),
         ];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
@@ -414,7 +436,7 @@ mod tests {
 
     /// Un espejo tiene que traer el color de lo que tiene enfrente.
     #[test]
-    fn mirror_picks_up_the_sphere_in_front_of_it() {
+    fn mirror_picks_up_the_block_in_front_of_it() {
         let gray = Color::new(120, 120, 120, 255);
         let matte_scene = mirror_test_scene(Material::matte(gray));
         let mirror_scene = mirror_test_scene(Material::mirror(gray));
@@ -423,7 +445,7 @@ mod tests {
         let mirror = trace(&mirror_scene, RAY_ORIGIN, RAY_DIR, MAX_DEPTH).to_color();
 
         // el gris mate tiene los tres canales parejos; el espejo tiene que
-        // inclinarse al rojo de la esfera que refleja
+        // inclinarse al rojo del bloque que refleja
         assert!(
             mirror.r as i32 - mirror.b as i32 > matte.r as i32 - matte.b as i32,
             "el espejo tendria que traer el rojo de enfrente: {mirror:?} vs {matte:?}"
@@ -451,13 +473,14 @@ mod tests {
         let mirror = Material::mirror(Color::new(200, 200, 200, 255));
         let mut scene = white_light_scene(0.1);
         scene.objects = vec![
-            Object::sphere(Vector3::new(-3.0, 0.0, -10.0), 1.0, mirror),
-            Object::sphere(Vector3::new(3.0, 0.0, -10.0), 1.0, mirror),
+            Object::cube(Vector3::new(-3.0, 0.0, -10.0), 2.0, mirror),
+            Object::cube(Vector3::new(3.0, 0.0, -10.0), 2.0, mirror),
         ];
         scene.bvh = Bvh::build(&mut scene.objects);
 
-        let origin = Vector3::new(-3.0, 0.0, -4.0);
-        let direction = Vector3::new(0.0, 0.0, -1.0);
+        // desde el medio: el rebote va de un espejo al otro y vuelta
+        let origin = Vector3::new(0.0, 0.0, -10.0);
+        let direction = Vector3::new(1.0, 0.0, 0.0);
 
         // si la recursion no cortara, esto no volveria nunca
         let color = trace(&scene, origin, direction, MAX_DEPTH).to_color();
@@ -470,18 +493,18 @@ mod tests {
         let incident = Vector3::new(0.0, 0.0, -1.0);
         let normal = Vector3::new(0.0, 0.0, 1.0);
 
-        let through = refract(incident, normal, GLASS_INDEX).expect("tenia que pasar");
+        let through = refract(incident, normal, WATER_INDEX).expect("tenia que pasar");
 
         assert!((through - incident).length() < 1e-5);
     }
 
     /// Al entrar en un medio mas denso el rayo se acerca a la normal.
     #[test]
-    fn entering_glass_bends_toward_the_normal() {
+    fn entering_water_bends_toward_the_normal() {
         let incident = Vector3::new(0.7071, 0.0, -0.7071);
         let normal = Vector3::new(0.0, 0.0, 1.0);
 
-        let through = refract(incident, normal, GLASS_INDEX)
+        let through = refract(incident, normal, WATER_INDEX)
             .expect("tenia que pasar")
             .normalized();
 
@@ -499,42 +522,46 @@ mod tests {
         let normal = Vector3::new(0.0, 0.0, 1.0);
         let incident = Vector3::new(0.9994, 0.0, 0.0349).normalized();
 
-        assert!(refract(incident, normal, GLASS_INDEX).is_none());
+        assert!(refract(incident, normal, WATER_INDEX).is_none());
     }
 
-    /// Una esfera de vidrio deja ver lo que tiene detras; una mate no.
+    /// Un bloque de agua deja ver lo que tiene detras; uno mate no.
     #[test]
-    fn glass_lets_the_sphere_behind_show_through() {
-        let red = Object::sphere(
+    fn water_lets_the_block_behind_show_through() {
+        let red = Object::cube(
             Vector3::new(0.0, 0.0, -20.0),
-            6.0,
+            12.0,
             Material::matte(Color::new(255, 0, 0, 255)),
         );
         let tint = Color::new(180, 180, 180, 255);
 
-        let mut glass_scene = white_light_scene(0.2);
-        glass_scene.objects = vec![
+        // cielo negro en las dos: el agua tambien refleja, y con el azul de
+        // verdad no se sabria si el color vino de atras del bloque o de arriba
+        let mut clear_scene = white_light_scene(0.2);
+        clear_scene.background = Rgb::new(0.0, 0.0, 0.0);
+        clear_scene.objects = vec![
             red,
-            Object::sphere(Vector3::new(0.0, 0.0, -10.0), 1.0, Material::glass(tint)),
+            Object::cube(Vector3::new(0.0, 0.0, -10.0), 2.0, Material::water(tint)),
         ];
-        glass_scene.bvh = Bvh::build(&mut glass_scene.objects);
+        clear_scene.bvh = Bvh::build(&mut clear_scene.objects);
 
         let mut solid_scene = white_light_scene(0.2);
+        solid_scene.background = Rgb::new(0.0, 0.0, 0.0);
         solid_scene.objects = vec![
             red,
-            Object::sphere(Vector3::new(0.0, 0.0, -10.0), 1.0, Material::matte(tint)),
+            Object::cube(Vector3::new(0.0, 0.0, -10.0), 2.0, Material::matte(tint)),
         ];
         solid_scene.bvh = Bvh::build(&mut solid_scene.objects);
 
         let origin = Vector3::new(0.0, 0.0, -4.0);
         let direction = Vector3::new(0.0, 0.0, -1.0);
 
-        let glass = trace(&glass_scene, origin, direction, MAX_DEPTH).to_color();
+        let clear = trace(&clear_scene, origin, direction, MAX_DEPTH).to_color();
         let solid = trace(&solid_scene, origin, direction, MAX_DEPTH).to_color();
 
         assert!(
-            glass.r as i32 - glass.b as i32 > solid.r as i32 - solid.b as i32,
-            "por el vidrio tendria que verse el rojo de atras: {glass:?} vs {solid:?}"
+            clear.r as i32 - clear.b as i32 > solid.r as i32 - solid.b as i32,
+            "por el agua tendria que verse el rojo de atras: {clear:?} vs {solid:?}"
         );
     }
 }

@@ -1,11 +1,11 @@
 // bvh.rs
 // Arbol de volumenes envolventes (BVH) sobre los cuerpos de la escena.
 //
-// Sin esto cada rayo prueba TODOS los cuerpos: 1000x1000 pixeles por casi 200
-// cuerpos son cientos de millones de tests por frame, y con la camara
-// moviendose hay que rehacerlos en cada cuadro. El BVH deja cada rayo en unos
-// pocos tests. Como la escena es estatica, se construye una sola vez: orbitar
-// la camara no lo invalida.
+// Sin esto cada rayo prueba TODOS los cuerpos: 1000x1000 pixeles por los mas
+// de mil bloques del terreno son miles de millones de tests por frame, y con
+// la camara moviendose hay que rehacerlos en cada cuadro. El BVH deja cada
+// rayo en unos pocos tests. Como la escena es estatica, se construye una sola
+// vez: orbitar la camara no lo invalida.
 use raylib::prelude::*;
 
 use crate::object::Object;
@@ -199,7 +199,7 @@ impl Bvh {
                     let first = node.payload as usize;
                     let last = first + node.count as usize;
                     for (offset, object) in objects[first..last].iter().enumerate() {
-                        if let Some(distance) = object.hit_distance(origin, direction, &inv_dir) {
+                        if let Some(distance) = object.hit_distance(origin, &inv_dir) {
                             if distance < best_distance {
                                 best_distance = distance;
                                 best = Some((first + offset, distance));
@@ -223,11 +223,13 @@ impl Bvh {
         }
     }
 
-    /// Hay algo tapando el tramo entre origin y una distancia dada?
+    /// Hay algo que tape la luz entre origin y una distancia dada? A
+    /// diferencia de nearest_hit alcanza con encontrar uno, asi que corta
+    /// apenas lo ve. Es lo que necesitan los rayos de sombra.
     ///
-    /// A diferencia de nearest_hit no interesa cual es el cuerpo mas cercano
-    /// ni a que distancia: con encontrar uno solo que estorbe alcanza, asi
-    /// que corta apenas lo encuentra. Es lo que necesitan los rayos de sombra.
+    /// Los cuerpos que dejan pasar la luz no cuentan como tapa: si contaran,
+    /// el agua se haria sombra a si misma y las lagunas saldrian negras. Lo
+    /// correcto seria atenuar y tintar la sombra; esto es la version barata.
     pub fn any_hit(
         &self,
         origin: &Vector3,
@@ -253,7 +255,10 @@ impl Bvh {
                     let first = node.payload as usize;
                     let last = first + node.count as usize;
                     for object in &objects[first..last] {
-                        if let Some(distance) = object.hit_distance(origin, direction, &inv_dir) {
+                        if object.material().albedo.refraction > 0.0 {
+                            continue;
+                        }
+                        if let Some(distance) = object.hit_distance(origin, &inv_dir) {
                             if distance < max_distance {
                                 return true;
                             }
@@ -325,23 +330,22 @@ mod tests {
         }
     }
 
-    /// Mezcla las dos formas: el BVH no tiene que distinguirlas.
+    /// Cuerpos sueltos y de tamanos distintos: al BVH le tiene que dar igual
+    /// como estan repartidos.
     fn random_scene(count: usize, seed: u32) -> Vec<Object> {
         let mut rng = Lcg(seed);
         (0..count)
-            .map(|i| {
+            .map(|_| {
                 let center = Vector3::new(
                     rng.range(-5.0, 5.0),
                     rng.range(-5.0, 5.0),
                     rng.range(-5.0, 5.0),
                 );
-                let size = rng.range(0.05, 0.6);
-                let material = Material::matte(Color::new(10, 20, 30, 255));
-                if i % 2 == 0 {
-                    Object::sphere(center, size, material)
-                } else {
-                    Object::cube(center, 2.0 * size, material)
-                }
+                Object::cube(
+                    center,
+                    rng.range(0.1, 1.2),
+                    Material::matte(Color::new(10, 20, 30, 255)),
+                )
             })
             .collect()
     }
@@ -351,7 +355,7 @@ mod tests {
         let inv_dir = Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
         objects
             .iter()
-            .filter_map(|o| o.hit_distance(origin, direction, &inv_dir))
+            .filter_map(|o| o.hit_distance(origin, &inv_dir))
             .fold(None, |best: Option<f32>, d| Some(best.map_or(d, |b| b.min(d))))
     }
 
@@ -404,9 +408,9 @@ mod tests {
     #[test]
     fn axis_aligned_rays_still_hit() {
         let mut objects = vec![
-            Object::sphere(
+            Object::cube(
                 Vector3::new(0.0, 0.0, -5.0),
-                1.0,
+                2.0,
                 Material::matte(Color::new(1, 2, 3, 255)),
             ),
             Object::cube(
@@ -422,8 +426,8 @@ mod tests {
         let hit = bvh_distance(&bvh, &objects, &origin, &direction).expect("tenia que pegar");
         assert!((hit - 4.0).abs() < 1e-4);
 
-        // el cubo, de canto: el rayo viaja en X justo por su altura y le pega
-        // en la cara de x = 5 antes de llegar a la esfera
+        // de canto: el rayo viaja en X justo por la altura del segundo cubo y
+        // le pega en la cara de x = 5 antes de llegar al primero
         let sideways = bvh_distance(
             &bvh,
             &objects,
@@ -452,9 +456,9 @@ mod tests {
     fn degenerate_split_terminates() {
         let mut objects: Vec<Object> = (0..32)
             .map(|i| {
-                Object::sphere(
+                Object::cube(
                     Vector3::new(0.0, 0.0, -5.0),
-                    0.1 + i as f32 * 0.01,
+                    0.2 + i as f32 * 0.02,
                     Material::matte(Color::new(0, 0, 0, 255)),
                 )
             })
@@ -499,12 +503,37 @@ mod tests {
         }
     }
 
+    /// Si el agua contara como tapa, el fondo de la laguna quedaria negro.
+    #[test]
+    fn transparent_bodies_do_not_block_the_light() {
+        let tint = Color::new(200, 220, 255, 255);
+        let origin = Vector3::zero();
+        let direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let mut clear = vec![Object::cube(
+            Vector3::new(0.0, 0.0, -5.0),
+            2.0,
+            Material::water(tint),
+        )];
+        let bvh = Bvh::build(&mut clear);
+        assert!(!bvh.any_hit(&origin, &direction, 10.0, &clear));
+
+        // el mismo cubo, opaco, si tapa
+        let mut solid = vec![Object::cube(
+            Vector3::new(0.0, 0.0, -5.0),
+            2.0,
+            Material::matte(tint),
+        )];
+        let bvh = Bvh::build(&mut solid);
+        assert!(bvh.any_hit(&origin, &direction, 10.0, &solid));
+    }
+
     /// Lo que queda mas lejos que el limite no tapa nada.
     #[test]
     fn any_hit_ignores_blockers_past_the_limit() {
-        let mut objects = vec![Object::sphere(
+        let mut objects = vec![Object::cube(
             Vector3::new(0.0, 0.0, -5.0),
-            1.0,
+            2.0,
             Material::matte(Color::new(1, 2, 3, 255)),
         )];
         let bvh = Bvh::build(&mut objects);
