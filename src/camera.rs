@@ -12,8 +12,9 @@ use crate::projection;
 /// degenere (arriba y forward paralelos).
 const PITCH_LIMIT: f32 = PI / 2.0 - 0.01;
 
-/// Un poco mas de 1 para que el terreno no toque los bordes del cuadro.
-const START_ZOOM: f32 = 1.1;
+/// 1.0 encuadra la esfera envolvente justa, que es lo mas cerca que se puede
+/// arrancar sin que el plano se salga del cuadro al girar hacia una esquina.
+const START_ZOOM: f32 = 1.0;
 /// Inclinacion inicial: de canto el terreno es una fila de bloques.
 const START_PITCH: f32 = 0.55;
 const MIN_DISTANCE: f32 = 0.5;
