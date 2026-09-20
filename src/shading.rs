@@ -37,33 +37,56 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
         return scene.background;
     };
 
-    // punto y normal solo para el cuerpo que gano, no para los descartados
+    // punto y superficie solo para el cuerpo que gano, no para los descartados
     let object = &scene.objects[index];
     let point = origin + direction * distance;
-    let normal = object.normal_at(point);
+    let surface = object.surface(point);
     let material = object.material();
+
+    let (texel, relief) = scene.textures[material.texture as usize].sample(surface.u, surface.v);
 
     // dentro de un cuerpo transparente el rayo sale por la cara de adentro:
     // ahi la normal apunta al lado contrario del que hay que iluminar
-    let facing = if direction.dot(normal) < 0.0 { normal } else { -normal };
+    let facing = if direction.dot(surface.normal) < 0.0 {
+        surface.normal
+    } else {
+        -surface.normal
+    };
+
+    // la del mapa normal es la que ilumina; la de la cara sigue siendo la que
+    // despega los rayos de la superficie, porque es la geometria de verdad
+    let bumped = surface.bumped(facing, relief);
+
+    // el color del material tine al del texel: en los bloques es el gris que
+    // los separa entre si, y en lo que no lleva textura es el color a secas
+    let base = Rgb::from_color(material.diffuse) * texel;
 
     // del punto hacia la camara: el especular necesita saber desde donde se mira
-    let mut color = shade(scene, material, point, facing, -direction);
+    let mut color = shade(scene, material, base, point, bumped, -direction);
 
     if depth == 0 {
         return color;
     }
 
     if material.albedo.reflection > 0.0 {
-        let bounce = reflect(direction, facing).normalized();
+        let bounce = reflect(direction, bumped).normalized();
+        // el relieve puede tirar el rebote para adentro del cuerpo, y desde
+        // ahi el rayo no ve mas que el propio bloque: ahi manda la cara
+        let bounce = if bounce.dot(facing) > 0.0 {
+            bounce
+        } else {
+            reflect(direction, facing).normalized()
+        };
+
         color = color
             + trace(scene, offset(point, facing, bounce), bounce, depth - 1)
                 * material.albedo.reflection;
     }
 
     if material.albedo.refraction > 0.0 {
-        // en reflexion total interna no sale nada: el rayo se queda adentro
-        if let Some(through) = refract(direction, normal, material.refractive_index) {
+        // lo que cruza se dobla contra la cara, no contra el relieve: por
+        // dentro del cuerpo el mapa normal no describe nada
+        if let Some(through) = refract(direction, surface.normal, material.refractive_index) {
             let through = through.normalized();
             color = color
                 + trace(scene, offset(point, facing, through), through, depth - 1)
@@ -110,16 +133,16 @@ fn refract(incident: Vector3, normal: Vector3, refractive_index: f32) -> Option<
 }
 
 /// Luz directa en un punto de la superficie: ambiente, difuso y especular.
+/// base es el color que ya trae la superficie, material por textura.
 /// view_dir va del punto hacia la camara, ya normalizado.
 fn shade(
     scene: &Scene,
     material: &Material,
+    base: Rgb,
     point: Vector3,
     normal: Vector3,
     view_dir: Vector3,
 ) -> Rgb {
-    let base = Rgb::from_color(material.diffuse);
-
     // la ambiente es el piso: sin ella, lo que no ve ninguna luz queda negro
     let mut diffuse = scene.ambient;
     let mut specular = Rgb::new(0.0, 0.0, 0.0);
@@ -202,7 +225,9 @@ mod tests {
         normal: Vector3,
         view_dir: Vector3,
     ) -> Color {
-        shade(scene, material, point, normal, view_dir).to_color()
+        // los tests de sombreado no usan texturas: el color sale del material
+        let base = Rgb::from_color(material.diffuse);
+        shade(scene, material, base, point, normal, view_dir).to_color()
     }
 
     /// Escena minima: una luz blanca a un metro sobre el punto (0,0,0),

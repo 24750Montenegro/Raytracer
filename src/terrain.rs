@@ -1,4 +1,4 @@
-// terrain.rs
+﻿// terrain.rs
 // Terreno de bloques generado con ruido: cuatro biomas de 24x24 repartidos en
 // un plano de 48x48.
 //
@@ -13,6 +13,7 @@ use raylib::prelude::*;
 use crate::material::Material;
 use crate::noise::Noise;
 use crate::object::Object;
+use crate::texture::{Recipe, Texture};
 
 /// Lado de cada bioma, en bloques.
 pub const BIOME_SIZE: usize = 24;
@@ -77,6 +78,20 @@ const COLOR_JITTER: f32 = 0.07;
 const PATCH_SALT: u64 = 0x1ce;
 const GRAIN_SALT: u64 = 0x9ea1;
 const BORDER_SALT: u64 = 0xb0d3;
+/// Las texturas no dependen de la semilla del terreno: son siempre estas.
+const TEXTURE_SEED: u64 = 0x7e_7c_00;
+
+/// Cuanto se exagera el relieve de los mapas normales.
+///
+/// Los del pack estan dibujados para shaders que ademas deforman la silueta
+/// con oclusion de paralaje; aca el unico que hace el trabajo es el
+/// sombreado, asi que tal cual vienen el relieve apenas se insinua.
+const RELIEF_BOOST: f32 = 4.0;
+
+/// El pasto y las hojas vienen en gris en el pack, como en el juego, que les
+/// pone el color del bioma al dibujarlas. Estos son los de una pradera.
+const GRASS_TINT: Color = Color { r: 145, g: 189, b: 89, a: 255 };
+const FOLIAGE_TINT: Color = Color { r: 119, g: 171, b: 47, a: 255 };
 
 /// Alturas de sorteo para separar los hashes que comparten el campo `grain`.
 const DRAW_TREE: i32 = -1;
@@ -186,6 +201,26 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
+    pub const ALL: [BlockKind; 15] = [
+        BlockKind::Water,
+        BlockKind::Sand,
+        BlockKind::Sandstone,
+        BlockKind::Cactus,
+        BlockKind::Grass,
+        BlockKind::Dirt,
+        BlockKind::Stone,
+        BlockKind::Gravel,
+        BlockKind::CoalOre,
+        BlockKind::IronOre,
+        BlockKind::GoldOre,
+        BlockKind::Snow,
+        BlockKind::Ice,
+        BlockKind::Wood,
+        BlockKind::Leaves,
+    ];
+
+    /// Color de fondo de su textura. Los minerales son piedra: lo que los
+    /// distingue son las pepitas, que pone la receta.
     pub fn color(self) -> Color {
         match self {
             BlockKind::Water => Color::new(58, 116, 184, 255),
@@ -196,9 +231,9 @@ impl BlockKind {
             BlockKind::Dirt => Color::new(133, 96, 66, 255),
             BlockKind::Stone => Color::new(140, 142, 146, 255),
             BlockKind::Gravel => Color::new(150, 144, 136, 255),
-            BlockKind::CoalOre => Color::new(74, 74, 78, 255),
-            BlockKind::IronOre => Color::new(174, 140, 110, 255),
-            BlockKind::GoldOre => Color::new(214, 176, 72, 255),
+            BlockKind::CoalOre | BlockKind::IronOre | BlockKind::GoldOre => {
+                Color::new(140, 142, 146, 255)
+            }
             BlockKind::Snow => Color::new(236, 242, 248, 255),
             BlockKind::Ice => Color::new(151, 192, 221, 255),
             BlockKind::Wood => Color::new(101, 76, 47, 255),
@@ -208,14 +243,142 @@ impl BlockKind {
 
     /// La tierra y la piedra son mates; los unicos que valen el trazado son
     /// el agua, el hielo, el oro de las vetas y la nieve.
-    pub fn material(self, diffuse: Color) -> Material {
+    ///
+    /// El tinte no es el color del bloque: ese vive en la textura. Es un gris
+    /// que lo oscurece un poco, para que dos bloques pegados del mismo tipo
+    /// no se lean como una sola chapa.
+    pub fn material(self, tint: Color) -> Material {
+        let material = match self {
+            BlockKind::Water => Material::water(tint),
+            BlockKind::Ice | BlockKind::GoldOre => Material::mirror(tint),
+            BlockKind::Snow => Material::plastic(tint),
+            _ => Material::matte(tint),
+        };
+
+        material.textured(self.texture())
+    }
+
+    /// Como se dibuja la textura de este bloque.
+    ///
+    /// La piedra y la tierra son grano parejo; la corteza y el cactus llevan
+    /// el grano estirado en vertical, que es lo que deja vetas; la arenisca
+    /// lo lleva estirado en horizontal y sale en bandas; el hielo y el agua
+    /// van casi lisos, porque el relieve ahi se ve en el reflejo y no en el
+    /// color. Los minerales son piedra con pepitas encima.
+    fn recipe(self) -> Recipe {
         match self {
-            BlockKind::Water => Material::water(diffuse),
-            BlockKind::Ice | BlockKind::GoldOre => Material::mirror(diffuse),
-            BlockKind::Snow => Material::plastic(diffuse),
-            _ => Material::matte(diffuse),
+            BlockKind::Water => Recipe::new(5.0, 0.05, 0.35, 0.0),
+            BlockKind::Sand => Recipe::new(1.3, 0.12, 0.28, 0.55),
+            BlockKind::Sandstone => Recipe::new(1.2, 0.14, 0.45, 0.3).stretched(7.0, 1.1),
+            BlockKind::Cactus => Recipe::new(1.0, 0.22, 0.9, 0.2).stretched(1.1, 6.0),
+            BlockKind::Grass => Recipe::new(2.0, 0.22, 0.6, 0.4),
+            BlockKind::Dirt => Recipe::new(1.8, 0.26, 0.75, 0.45),
+            BlockKind::Stone => Recipe::new(1.5, 0.16, 0.6, 0.4),
+            BlockKind::Gravel => Recipe::new(2.2, 0.3, 1.1, 0.5),
+            BlockKind::CoalOre => {
+                Recipe::new(1.5, 0.16, 0.6, 0.4).flecked(Color::new(62, 62, 66, 255), 0.26, 0.5)
+            }
+            BlockKind::IronOre => {
+                Recipe::new(1.5, 0.16, 0.6, 0.4).flecked(Color::new(196, 150, 112, 255), 0.26, 0.5)
+            }
+            BlockKind::GoldOre => {
+                Recipe::new(1.5, 0.16, 0.6, 0.4).flecked(Color::new(226, 184, 74, 255), 0.26, 0.5)
+            }
+            BlockKind::Snow => Recipe::new(3.0, 0.05, 0.25, 0.5),
+            BlockKind::Ice => Recipe::new(4.5, 0.08, 0.3, 0.15),
+            BlockKind::Wood => Recipe::new(1.0, 0.24, 0.8, 0.25).stretched(1.2, 7.0),
+            BlockKind::Leaves => Recipe::new(2.6, 0.34, 1.2, 0.45),
         }
     }
+
+    /// De que archivo del pack sale su textura, y con que color hay que
+    /// tenirla. El juego guarda el pasto y las hojas en gris y les pone el
+    /// color del bioma al dibujarlos; el resto ya viene pintado.
+    ///
+    /// None es para lo que el pack no trae: el agua, que en Minecraft la
+    /// dibuja el shader. Esa se genera con la receta.
+    fn texture_file(self) -> Option<(&'static str, Color)> {
+        let plain = Color::new(255, 255, 255, 255);
+
+        match self {
+            BlockKind::Water => None,
+            BlockKind::Sand => Some(("sand", plain)),
+            BlockKind::Sandstone => Some(("sandstone", plain)),
+            BlockKind::Cactus => Some(("cactus_side", plain)),
+            BlockKind::Grass => Some(("grass_block_top", GRASS_TINT)),
+            BlockKind::Dirt => Some(("dirt", plain)),
+            BlockKind::Stone => Some(("stone", plain)),
+            BlockKind::Gravel => Some(("gravel", plain)),
+            BlockKind::CoalOre => Some(("coal_ore", plain)),
+            BlockKind::IronOre => Some(("iron_ore", plain)),
+            BlockKind::GoldOre => Some(("gold_ore", plain)),
+            BlockKind::Snow => Some(("snow", plain)),
+            BlockKind::Ice => Some(("ice", plain)),
+            BlockKind::Wood => Some(("oak_log", plain)),
+            BlockKind::Leaves => Some(("oak_leaves", FOLIAGE_TINT)),
+        }
+    }
+
+    /// Cuanto se exagera el relieve de su mapa normal.
+    ///
+    /// El agua y el hielo van casi planos: son los dos que reflejan, y el
+    /// relieve rompe la imagen reflejada en pedazos que apuntan cada uno
+    /// para su lado. El resto va por encima de 1, ver RELIEF_BOOST.
+    fn relief_strength(self) -> f32 {
+        match self {
+            BlockKind::Water => 0.12,
+            BlockKind::Ice => 0.15,
+            _ => RELIEF_BOOST,
+        }
+    }
+
+    /// La textura dibujada con la receta, para lo que no esta en el pack.
+    /// Cada bloque lleva un campo de ruido propio: con el mismo, todas
+    /// saldrian con el mismo dibujo y solo cambiaria el color.
+    fn drawn(self, noise: &Noise, place: usize) -> Texture {
+        Texture::build(self.color(), &self.recipe(), &noise.variant(place as u64))
+    }
+
+    /// Su lugar en la tabla de texturas de la escena.
+    fn texture(self) -> u16 {
+        let place = BlockKind::ALL
+            .iter()
+            .position(|kind| *kind == self)
+            .expect("todo bloque esta en ALL");
+
+        // la 0 es la lisa
+        (place + 1) as u16
+    }
+}
+
+/// Las texturas de todos los bloques, en el orden en que las busca
+/// `BlockKind::texture`. La primera es la lisa, la de los materiales que no
+/// llevan textura.
+///
+/// Las del pack se leen de disco. Si alguna falta, ese bloque cae en la
+/// receta procedural en vez de tumbar el programa: prefiero un bloque con
+/// otra textura que una escena que no abre.
+pub fn block_textures() -> Vec<Texture> {
+    let noise = Noise::new(TEXTURE_SEED);
+    let mut textures = vec![Texture::plain()];
+
+    for (place, kind) in BlockKind::ALL.iter().enumerate() {
+        let loaded = kind.texture_file().map(|(file, tint)| Texture::load(file, tint));
+
+        let texture = match loaded {
+            Some(Ok(texture)) => texture,
+            Some(Err(problem)) => {
+                eprintln!("textura de {kind:?}: {problem}");
+                kind.drawn(&noise, place)
+            }
+            // el pack no la trae, va la receta y listo
+            None => kind.drawn(&noise, place),
+        };
+
+        textures.push(texture.with_relief(kind.relief_strength()));
+    }
+
+    textures
 }
 
 pub struct Terrain {
@@ -573,8 +736,7 @@ impl Terrain {
 
     fn block(&self, x: usize, level: i32, z: usize, kind: BlockKind) -> Object {
         let draw = self.grain.hash_unit(x as i32, level, z as i32);
-        let diffuse = tinted(kind.color(), draw);
-        Object::cube(block_center(x, level, z), BLOCK, kind.material(diffuse))
+        Object::cube(block_center(x, level, z), BLOCK, kind.material(tinted(draw)))
     }
 }
 
@@ -629,16 +791,20 @@ fn block_center(x: usize, level: i32, z: usize) -> Vector3 {
     )
 }
 
-fn tinted(color: Color, draw: f32) -> Color {
-    let factor = 1.0 + (draw - 0.5) * 2.0 * COLOR_JITTER;
-    let channel = |value: u8| (value as f32 * factor).clamp(0.0, 255.0) as u8;
+/// Gris por el que se multiplica la textura del bloque. Solo oscurece: si
+/// tambien aclarara, el tope de 255 recortaria la mitad de los sorteos y esos
+/// bloques saldrian todos iguales.
+fn tinted(draw: f32) -> Color {
+    let level = (255.0 * (1.0 - (1.0 - draw) * COLOR_JITTER)) as u8;
 
-    Color::new(channel(color.r), channel(color.g), channel(color.b), 255)
+    Color::new(level, level, level, 255)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::material::PLAIN_TEXTURE;
+    use crate::texture::TILE;
 
     const ALL_BIOMES: [Biome; 4] = [Biome::Forest, Biome::Desert, Biome::Ice, Biome::Mines];
 
@@ -1177,16 +1343,89 @@ mod tests {
         }
     }
 
+    /// El tinte del bloque solo oscurece un poco: si se pasara, el color de
+    /// la textura se perderia debajo.
     #[test]
-    fn the_tint_only_nudges_the_colour() {
-        let base = BlockKind::Grass.color();
+    fn the_tint_only_nudges_the_block() {
+        for draw in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let tint = tinted(draw);
 
-        for draw in [0.0, 0.25, 0.5, 0.75, 0.999] {
-            let shade = tinted(base, draw);
-            let drift = (shade.g as i32 - base.g as i32).abs();
-            assert!(drift <= (base.g as f32 * COLOR_JITTER) as i32 + 1, "corrio {drift}");
+            assert_eq!(tint.r, tint.g, "el tinte tiene que ser gris");
+            assert_eq!(tint.g, tint.b, "el tinte tiene que ser gris");
+            assert!(
+                tint.r as f32 >= 255.0 * (1.0 - COLOR_JITTER) - 1.0,
+                "oscurecio de mas: {}",
+                tint.r
+            );
         }
 
-        assert_ne!(tinted(base, 0.0).g, tinted(base, 1.0).g, "el tono no varia");
+        assert!(tinted(0.0).r < tinted(1.0).r, "el tinte no varia");
+    }
+
+    /// Cada bloque tiene su textura, y ninguno se queda con la lisa.
+    #[test]
+    fn every_block_kind_has_its_own_texture() {
+        let textures = block_textures();
+
+        assert_eq!(textures.len(), BlockKind::ALL.len() + 1);
+
+        let mut used: Vec<u16> = BlockKind::ALL.iter().map(|kind| kind.texture()).collect();
+        used.sort_unstable();
+        used.dedup();
+
+        assert_eq!(used.len(), BlockKind::ALL.len(), "dos bloques comparten textura");
+        assert!(
+            used.iter().all(|slot| *slot != PLAIN_TEXTURE),
+            "algun bloque quedo con la textura lisa"
+        );
+        assert!(
+            used.iter().all(|slot| (*slot as usize) < textures.len()),
+            "una textura se sale de la tabla"
+        );
+    }
+
+    /// El agua y el hielo van casi planos contra los demas: son los dos que
+    /// reflejan, y el relieve rompe la imagen reflejada. Se mide contra la
+    /// piedra y no contra un numero fijo, porque lo que importa es la
+    /// diferencia entre una superficie que refleja y una que no.
+    #[test]
+    fn the_reflective_blocks_stay_smoother_than_the_rest() {
+        let textures = block_textures();
+
+        let tilt = |kind: BlockKind| {
+            let texture = &textures[kind.texture() as usize];
+            let mut total = 0.0;
+
+            for row in 0..TILE {
+                for column in 0..TILE {
+                    let u = (column as f32 + 0.5) / TILE as f32;
+                    let v = (row as f32 + 0.5) / TILE as f32;
+                    total += 1.0 - texture.sample(u, v).1.z;
+                }
+            }
+
+            total / (TILE * TILE) as f32
+        };
+
+        let rough = tilt(BlockKind::Stone).max(tilt(BlockKind::Gravel));
+        assert!(rough > 0.0, "la piedra se quedo sin relieve");
+
+        for smooth in [BlockKind::Water, BlockKind::Ice] {
+            assert!(
+                tilt(smooth) < rough / 4.0,
+                "{smooth:?} esta tan rugoso como la piedra: {} contra {rough}",
+                tilt(smooth)
+            );
+        }
+    }
+
+    /// Y el material del bloque la arrastra: si no, la escena se dibujaria
+    /// con los colores planos otra vez.
+    #[test]
+    fn the_block_material_carries_its_texture() {
+        for kind in BlockKind::ALL {
+            let material = kind.material(tinted(0.5));
+            assert_eq!(material.texture, kind.texture(), "{kind:?} perdio la textura");
+        }
     }
 }

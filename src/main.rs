@@ -15,6 +15,7 @@ mod render;
 mod scene;
 mod shading;
 mod terrain;
+mod texture;
 
 use camera::Camera;
 use framebuffer::Framebuffer;

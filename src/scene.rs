@@ -8,7 +8,8 @@ use crate::color::Rgb;
 use crate::light::Light;
 use crate::noise;
 use crate::object::Object;
-use crate::terrain::Terrain;
+use crate::terrain::{self, Terrain};
+use crate::texture::Texture;
 
 pub const BACKGROUND_COLOR: Color = Color { r: 124, g: 176, b: 232, a: 255 };
 
@@ -27,6 +28,8 @@ pub struct Scene {
     pub center: Vector3,
     pub radius: f32,
     pub seed: u64,
+    /// Las texturas de los bloques. Cada material guarda en cual cae.
+    pub textures: Vec<Texture>,
 }
 
 impl Scene {
@@ -50,6 +53,7 @@ impl Scene {
             center,
             radius,
             seed,
+            textures: terrain::block_textures(),
         }
     }
 
@@ -67,6 +71,7 @@ impl Scene {
             center: Vector3::zero(),
             radius: 1.0,
             seed: 0,
+            textures: vec![Texture::plain()],
         }
     }
 }

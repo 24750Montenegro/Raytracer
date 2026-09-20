@@ -10,6 +10,10 @@ pub const AIR_INDEX: f32 = 1.0;
 /// El del agua.
 pub const WATER_INDEX: f32 = 1.33;
 
+/// La textura lisa y blanca, que deja al material con su color plano. Va
+/// primera en la tabla de la escena para que sea el valor por omision.
+pub const PLAIN_TEXTURE: u16 = 0;
+
 /// Como reparte el material la luz que recibe.
 /// Los pesos juntos no deberian pasar de 1: lo que sale por un camino no
 /// puede volver a salir por otro sin inventar energia.
@@ -50,6 +54,8 @@ pub struct Material {
     /// 1.0, el vidrio comun 1.5 y el agua 1.33. Solo importa si el material
     /// deja pasar algo de luz.
     pub refractive_index: f32,
+    /// Que textura lo dibuja, por posicion en la tabla de la escena.
+    pub texture: u16,
 }
 
 impl Material {
@@ -59,7 +65,14 @@ impl Material {
             albedo,
             shininess: shininess.max(1.0),
             refractive_index: AIR_INDEX,
+            texture: PLAIN_TEXTURE,
         }
+    }
+
+    /// Le cuelga una textura: el color del material pasa a ser un tinte que
+    /// multiplica al de cada texel.
+    pub fn textured(self, texture: u16) -> Self {
+        Material { texture, ..self }
     }
 
     /// Igual que new pero para cuerpos que dejan pasar la luz.
@@ -91,14 +104,16 @@ impl Material {
         Material::new(diffuse, Albedo::new(0.15, 0.4, 0.6, 0.0), 256.0)
     }
 
-    /// Agua: el unico material de la escena que deja pasar la luz. Transmite
-    /// poco a proposito. Dejando pasar casi todo toma el color de lo que
-    /// tiene detras, que es el fondo de la laguna, y sale casi negra.
+    /// Agua: el unico material de la escena que deja pasar la luz.
+    ///
+    /// Lo que mas pesa es el reflejo, porque es lo que se ve de una lamina de
+    /// agua quieta. El color propio queda bajo, pero no en cero: es lo que
+    /// evita que una laguna con el fondo en sombra salga negra.
     pub fn water(diffuse: Color) -> Self {
         Material::transparent(
             diffuse,
-            Albedo::new(0.35, 0.35, 0.25, 0.35),
-            96.0,
+            Albedo::new(0.22, 0.4, 0.5, 0.3),
+            160.0,
             WATER_INDEX,
         )
     }

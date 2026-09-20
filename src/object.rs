@@ -10,6 +10,7 @@ use raylib::prelude::*;
 
 use crate::cube::Cube;
 use crate::material::Material;
+use crate::texture::Surface;
 
 #[derive(Clone, Copy)]
 pub enum Object {
@@ -31,11 +32,11 @@ impl Object {
         }
     }
 
-    /// Normal unitaria hacia afuera en un punto de la superficie.
+    /// Normal, ejes de la textura y coordenadas en un punto de la superficie.
     #[inline(always)]
-    pub fn normal_at(&self, point: Vector3) -> Vector3 {
+    pub fn surface(&self, point: Vector3) -> Surface {
         match self {
-            Object::Cube(cube) => cube.normal_at(point),
+            Object::Cube(cube) => cube.surface(point),
         }
     }
 
