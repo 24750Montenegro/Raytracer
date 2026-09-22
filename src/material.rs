@@ -94,14 +94,14 @@ impl Material {
     }
 
     /// Material tipo plastico: mayormente difuso pero con un brillo chico
-    /// que delata la forma de la esfera.
+    /// que delata la forma del cuerpo.
     pub fn plastic(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.8, 0.25, 0.0, 0.0), 48.0)
+        Material::new(diffuse, Albedo::new(0.78, 0.22, 0.0, 0.0), 48.0)
     }
 
     /// Metal pulido: poco color propio y mucha imagen del entorno.
     pub fn mirror(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.15, 0.4, 0.6, 0.0), 256.0)
+        Material::new(diffuse, Albedo::new(0.12, 0.3, 0.55, 0.0), 256.0)
     }
 
     /// Agua: el unico material de la escena que deja pasar la luz.
@@ -109,10 +109,14 @@ impl Material {
     /// Lo que mas pesa es el reflejo, porque es lo que se ve de una lamina de
     /// agua quieta. El color propio queda bajo, pero no en cero: es lo que
     /// evita que una laguna con el fondo en sombra salga negra.
+    ///
+    /// Los cuatro pesos juntos rondan 1 a proposito. Antes sumaban casi 1.5,
+    /// o sea que el agua devolvia mas luz de la que le llegaba, y a pleno sol
+    /// salia una chapa blanca en vez de una laguna.
     pub fn water(diffuse: Color) -> Self {
         Material::transparent(
             diffuse,
-            Albedo::new(0.22, 0.4, 0.5, 0.3),
+            Albedo::new(0.15, 0.25, 0.4, 0.25),
             160.0,
             WATER_INDEX,
         )

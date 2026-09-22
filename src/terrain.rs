@@ -83,10 +83,22 @@ const TEXTURE_SEED: u64 = 0x7e_7c_00;
 
 /// Cuanto se exagera el relieve de los mapas normales.
 ///
-/// Los del pack estan dibujados para shaders que ademas deforman la silueta
-/// con oclusion de paralaje; aca el unico que hace el trabajo es el
-/// sombreado, asi que tal cual vienen el relieve apenas se insinua.
-const RELIEF_BOOST: f32 = 4.0;
+/// Los del pack estan dibujados para shaders que ademas hunden la textura
+/// con oclusion de paralaje, y aca ese trabajo ahora lo hace el trazado del
+/// relieve, no el mapa normal. Por eso la exageracion es poca: subirla mas
+/// no agrega volumen, solo inclina las normales hasta que cada texel toma
+/// la luz de canto y la cara sale a manchones quemados.
+const RELIEF_BOOST: f32 = 1.6;
+
+/// Cuanto se hunde el relieve de cada bloque, como fraccion del lado de la
+/// cara. Un texel mide 1/16 = 0.0625, asi que estos valores van de dos
+/// tercios de texel a dos texels de profundidad: lo justo para que el bloque
+/// se lea tallado sin que el dibujo nade al girar la camara, que es lo que
+/// pasa cuando el hueco es mas hondo que ancho.
+const DEPTH_FLAT: f32 = 0.0;
+const DEPTH_FINE: f32 = 0.04;
+const DEPTH_ROCK: f32 = 0.08;
+const DEPTH_COARSE: f32 = 0.12;
 
 /// El pasto y las hojas vienen en gris en el pack, como en el juego, que les
 /// pone el color del bioma al dibujarlas. Estos son los de una pradera.
@@ -332,6 +344,22 @@ impl BlockKind {
         }
     }
 
+    /// Cuanto se hunde su relieve al trazarlo.
+    ///
+    /// Es lo que decide si el bloque se ve tallado o estampado. Los dos que
+    /// reflejan van en cero, por lo mismo que van sin relieve: la imagen
+    /// reflejada se dibuja sobre la cara y hundirla la rompe. De los demas,
+    /// el ripio y las hojas son los mas sueltos y los que mas se hunden; la
+    /// nieve y la arena, casi lisas, apenas.
+    fn relief_depth(self) -> f32 {
+        match self {
+            BlockKind::Water | BlockKind::Ice => DEPTH_FLAT,
+            BlockKind::Snow | BlockKind::Sand => DEPTH_FINE,
+            BlockKind::Gravel | BlockKind::Leaves => DEPTH_COARSE,
+            _ => DEPTH_ROCK,
+        }
+    }
+
     /// La textura dibujada con la receta, para lo que no esta en el pack.
     /// Cada bloque lleva un campo de ruido propio: con el mismo, todas
     /// saldrian con el mismo dibujo y solo cambiaria el color.
@@ -375,7 +403,11 @@ pub fn block_textures() -> Vec<Texture> {
             None => kind.drawn(&noise, place),
         };
 
-        textures.push(texture.with_relief(kind.relief_strength()));
+        textures.push(
+            texture
+                .with_relief(kind.relief_strength())
+                .with_depth(kind.relief_depth()),
+        );
     }
 
     textures
@@ -1416,6 +1448,28 @@ mod tests {
                 "{smooth:?} esta tan rugoso como la piedra: {} contra {rough}",
                 tilt(smooth)
             );
+        }
+    }
+
+    /// Los bloques tallados tienen que correr la textura segun desde donde
+    /// se los mire, y los que reflejan no: en esos el relieve hundido
+    /// romperia la imagen que devuelven.
+    #[test]
+    fn only_the_carved_blocks_shift_with_the_view() {
+        let textures = block_textures();
+        // mirando la cara de bien de costado, que es donde mas se corre
+        let slanted = Vector3::new(0.7, 0.0, 0.7).normalized();
+        let shift = |kind: BlockKind| {
+            let (u, v, _) = textures[kind.texture() as usize].parallax(0.5, 0.5, slanted);
+            (u - 0.5).abs() + (v - 0.5).abs()
+        };
+
+        for carved in [BlockKind::Stone, BlockKind::Gravel, BlockKind::Leaves] {
+            assert!(shift(carved) > 0.0, "{carved:?} se dibuja plano");
+        }
+
+        for flat in [BlockKind::Water, BlockKind::Ice] {
+            assert_eq!(shift(flat), 0.0, "{flat:?} tendria que quedar plano");
         }
     }
 

@@ -15,11 +15,19 @@
 // las transparentes otro que sigue para adentro doblado por la ley de Snell.
 // Cada uno de esos rayos puede volver a rebotar: ese encadenado es lo que
 // limita MAX_DEPTH.
+//
+// El relieve de la textura entra dos veces en la cuenta. Primero al elegir
+// que texel se ve: el rayo se mete en el mapa de alturas y camina hasta
+// chocar, asi que lo que se pinta depende de desde donde se mire. Y despues
+// en cada luz, porque el mismo relieve puede taparla: eso es lo que deja en
+// sombra las juntas entre piedras y lo que termina de despegar el bloque de
+// una calcomania.
 use raylib::prelude::*;
 
 use crate::color::Rgb;
 use crate::material::Material;
 use crate::scene::Scene;
+use crate::texture::{Surface, Texture};
 
 /// Cuanto se despegan de la superficie los rayos que salen de ella. Sin este
 /// empujon el cuerpo se toca a si mismo por error de redondeo: en las sombras
@@ -42,8 +50,7 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
     let point = origin + direction * distance;
     let surface = object.surface(point);
     let material = object.material();
-
-    let (texel, relief) = scene.textures[material.texture as usize].sample(surface.u, surface.v);
+    let texture = &scene.textures[material.texture as usize];
 
     // dentro de un cuerpo transparente el rayo sale por la cara de adentro:
     // ahi la normal apunta al lado contrario del que hay que iluminar
@@ -53,16 +60,24 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
         -surface.normal
     };
 
+    // del punto hacia la camara: lo necesitan el especular, para saber desde
+    // donde se mira, y el relieve, para saber por donde entra el rayo
+    let view_dir = -direction;
+
+    // el rayo se mete en el relieve antes de leer el texel: lo que se ve no
+    // es lo que hay donde pego la cara plana, sino donde choca adentro
+    let relief = Relief::traced(texture, &surface, facing, view_dir);
+    let (texel, tilt) = texture.sample(relief.u, relief.v);
+
     // la del mapa normal es la que ilumina; la de la cara sigue siendo la que
     // despega los rayos de la superficie, porque es la geometria de verdad
-    let bumped = surface.bumped(facing, relief);
+    let bumped = surface.bumped(facing, tilt);
 
     // el color del material tine al del texel: en los bloques es el gris que
     // los separa entre si, y en lo que no lleva textura es el color a secas
     let base = Rgb::from_color(material.diffuse) * texel;
 
-    // del punto hacia la camara: el especular necesita saber desde donde se mira
-    let mut color = shade(scene, material, base, point, bumped, -direction);
+    let mut color = shade(scene, material, base, point, bumped, view_dir, Some(&relief));
 
     if depth == 0 {
         return color;
@@ -95,6 +110,51 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
     }
 
     color
+}
+
+/// Donde quedo el rayo dentro del relieve de la textura, y con que ejes se
+/// lo recorrio. Es lo que hace falta para preguntarle despues si una luz le
+/// llega o si se la tapa un bulto de la propia textura.
+struct Relief<'a> {
+    texture: &'a Texture,
+    surface: &'a Surface,
+    /// La normal de la cara, del lado por el que llego el rayo.
+    facing: Vector3,
+    /// Coordenadas del impacto, ya corridas por el paralaje.
+    u: f32,
+    v: f32,
+    /// A que altura del relieve quedo, de 0 (fondo) a 1 (superficie).
+    height: f32,
+}
+
+impl<'a> Relief<'a> {
+    /// Mete el rayo en el relieve y se queda con donde choco.
+    fn traced(
+        texture: &'a Texture,
+        surface: &'a Surface,
+        facing: Vector3,
+        view_dir: Vector3,
+    ) -> Self {
+        let view = surface.to_tangent(view_dir, facing);
+        let (u, v, height) = texture.parallax(surface.u, surface.v, view);
+
+        Relief {
+            texture,
+            surface,
+            facing,
+            u,
+            v,
+            height,
+        }
+    }
+
+    /// Cuanta luz directa le llega desde esa direccion: 1 a la vista y 0 en
+    /// el fondo de un hueco que la tapa.
+    fn lit_fraction(&self, to_light: Vector3) -> f32 {
+        let tangent = self.surface.to_tangent(to_light, self.facing);
+
+        self.texture.lit_fraction(self.u, self.v, self.height, tangent)
+    }
 }
 
 /// Despega el origen del rayo de la superficie, del lado hacia el que sale.
@@ -135,6 +195,8 @@ fn refract(incident: Vector3, normal: Vector3, refractive_index: f32) -> Option<
 /// Luz directa en un punto de la superficie: ambiente, difuso y especular.
 /// base es el color que ya trae la superficie, material por textura.
 /// view_dir va del punto hacia la camara, ya normalizado.
+/// relief es donde cayo el rayo dentro del relieve de la textura; None deja
+/// la cara lisa, que es lo que hace falta para probar el modelo de luz solo.
 fn shade(
     scene: &Scene,
     material: &Material,
@@ -142,6 +204,7 @@ fn shade(
     point: Vector3,
     normal: Vector3,
     view_dir: Vector3,
+    relief: Option<&Relief>,
 ) -> Rgb {
     // la ambiente es el piso: sin ella, lo que no ve ninguna luz queda negro
     let mut diffuse = scene.ambient;
@@ -157,13 +220,21 @@ fn shade(
             continue;
         }
 
+        // el relieve de la textura tambien tapa la luz, y averiguarlo son
+        // cinco lecturas de un vector: se pregunta antes que el rayo de
+        // sombra, que recorre el BVH entero
+        let lit = relief.map_or(1.0, |relief| relief.lit_fraction(to_light));
+        if lit <= 0.0 {
+            continue;
+        }
+
         // el orden importa: el coseno es una multiplicacion y el rayo de
         // sombra es un recorrido del BVH, asi que primero se descarta barato
         if in_shadow(scene, point, normal, to_light, distance) {
             continue;
         }
 
-        diffuse = diffuse + light.color * (light.intensity * lambert);
+        diffuse = diffuse + light.color * (light.intensity * lambert * lit);
 
         if material.albedo.specular <= 0.0 {
             continue;
@@ -173,7 +244,7 @@ fn shade(
         // El exponente controla que tan cerrado queda ese brillo.
         let bounce = reflect(-to_light, normal).dot(view_dir);
         if bounce > 0.0 {
-            let highlight = bounce.powf(material.shininess) * light.intensity;
+            let highlight = bounce.powf(material.shininess) * light.intensity * lit;
             specular = specular + light.color * highlight;
         }
     }
@@ -209,6 +280,7 @@ mod tests {
     use crate::material::{Albedo, WATER_INDEX};
     use crate::object::Object;
     use crate::scene::Scene;
+    use crate::texture::TILE;
 
     /// Camara imaginaria justo encima del punto, mirando hacia abajo.
     const VIEW: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
@@ -225,9 +297,10 @@ mod tests {
         normal: Vector3,
         view_dir: Vector3,
     ) -> Color {
-        // los tests de sombreado no usan texturas: el color sale del material
+        // los tests de sombreado no usan texturas: el color sale del
+        // material y la cara va lisa, sin relieve que tape nada
         let base = Rgb::from_color(material.diffuse);
-        shade(scene, material, base, point, normal, view_dir).to_color()
+        shade(scene, material, base, point, normal, view_dir, None).to_color()
     }
 
     /// Escena minima: una luz blanca a un metro sobre el punto (0,0,0),
@@ -435,6 +508,77 @@ mod tests {
         let lit = shade_color(&scene, &white_matte(1.0), point, normal, VIEW);
 
         assert_eq!(lit.r, 255, "el bloque no deberia sombrearse a si mismo");
+    }
+
+    /// Un bloque blanco con media cara hundida, para ver que hace el
+    /// relieve. El color es parejo a proposito: asi toda diferencia entre
+    /// dos frames sale del relieve y no del dibujo de la textura.
+    fn carved_scene(depth: f32) -> Scene {
+        let mut scene = white_light_scene(0.1);
+
+        // escalon a lo ancho de v, que es por donde le entra la luz
+        let mut height = vec![0.0; TILE * TILE];
+        for y in TILE / 2..TILE {
+            for x in 0..TILE {
+                height[y * TILE + x] = 1.0;
+            }
+        }
+        let carved = Texture::from_relief(
+            vec![Rgb::new(1.0, 1.0, 1.0); TILE * TILE],
+            &height,
+            1.0,
+        )
+        .with_depth(depth);
+
+        scene.textures = vec![Texture::plain(), carved];
+        scene.objects = vec![Object::cube(
+            Vector3::new(0.0, 0.0, -10.0),
+            4.0,
+            Material::matte(Color::new(255, 255, 255, 255)).textured(1),
+        )];
+        scene.bvh = Bvh::build(&mut scene.objects);
+        scene
+    }
+
+    /// Cuanta luz devuelve la cara de arriba del bloque, sumada sobre una
+    /// grilla de rayos.
+    fn face_brightness(scene: &Scene) -> u32 {
+        let mut total = 0;
+
+        for row in 0..5 {
+            for column in 0..5 {
+                let x = -1.6 + 0.8 * column as f32;
+                let z = -11.6 + 0.8 * row as f32;
+                let origin = Vector3::new(x, -8.0, z);
+                let down = Vector3::new(0.0, 1.0, 0.0);
+
+                total += trace(scene, origin, down, MAX_DEPTH).to_color().r as u32;
+            }
+        }
+
+        total
+    }
+
+    /// El relieve de la textura tambien hace sombra: los texels del fondo
+    /// del escalon reciben menos luz que la misma cara dibujada plana. Sin
+    /// esto el mapa de alturas solo correria el dibujo, y las juntas entre
+    /// piedras nunca se oscurecerian.
+    #[test]
+    fn the_relief_shadows_its_own_face() {
+        let flat = face_brightness(&carved_scene(0.0));
+        let carved = face_brightness(&carved_scene(0.3));
+
+        assert!(carved < flat, "el relieve no apago nada: {carved} contra {flat}");
+    }
+
+    /// Pero no puede apagar la cara entera: lo que esta a la vista sigue
+    /// recibiendo la luz igual que antes.
+    #[test]
+    fn the_relief_shadow_does_not_swallow_the_face() {
+        let flat = face_brightness(&carved_scene(0.0));
+        let carved = face_brightness(&carved_scene(0.3));
+
+        assert!(carved > flat / 2, "quedo demasiado oscuro: {carved} contra {flat}");
     }
 
     /// Geometria de los tests de reflejo. El rayo entra en diagonal porque

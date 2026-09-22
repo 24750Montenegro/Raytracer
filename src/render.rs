@@ -84,8 +84,11 @@ fn render_tile(
             let inv_len = 1.0 / (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z).sqrt();
             let ray_direction = Vector3::new(dir.x * inv_len, dir.y * inv_len, dir.z * inv_len);
 
+            // to_display y no to_color: el trazado devuelve luz, que puede
+            // pasarse de 1.0, y recortarla canal por canal quema el pixel y
+            // le cambia el tono
             let color =
-                shading::trace(scene, camera.origin, ray_direction, quality.depth).to_color();
+                shading::trace(scene, camera.origin, ray_direction, quality.depth).to_display();
 
             // el rayo pinta su pixel y, si hay stride, los que lo acompanan
             for pixel in pixel_block.chunks_exact_mut(4) {
@@ -240,7 +243,10 @@ mod tests {
 
         render(&mut framebuffer, &scene, &camera.basis(), Quality::FULL);
 
-        let sky = scene.background.to_color();
+        // el mismo camino que siguen los pixeles: el cielo tambien pasa por
+        // la curva de la luz, asi que comparar contra el color crudo diria
+        // que el cuadro entero es terreno
+        let sky = scene.background.to_display();
         let pixels = framebuffer.pixels_mut();
         let terrain = pixels
             .chunks_exact(4)
