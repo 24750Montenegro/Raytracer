@@ -10,8 +10,8 @@ use crate::projection;
 use crate::scene::Scene;
 use crate::shading;
 
-/// Filas por tile. Tiles chicos = mejor reparto (una franja con muchas
-/// esferas cuesta bastante mas que uno de puro fondo), pero demasiado
+/// Filas por tile. Tiles chicos = mejor reparto (una franja con muchos
+/// bloques cuesta bastante mas que uno de puro fondo), pero demasiado
 /// chicos y se paga el lock mas seguido. 8 filas es un punto sano.
 const TILE_ROWS: usize = 8;
 
@@ -84,8 +84,11 @@ fn render_tile(
             let inv_len = 1.0 / (dir.x * dir.x + dir.y * dir.y + dir.z * dir.z).sqrt();
             let ray_direction = Vector3::new(dir.x * inv_len, dir.y * inv_len, dir.z * inv_len);
 
+            // to_display y no to_color: el trazado devuelve luz, que puede
+            // pasarse de 1.0, y recortarla canal por canal quema el pixel y
+            // le cambia el tono
             let color =
-                shading::trace(scene, camera.origin, ray_direction, quality.depth).to_color();
+                shading::trace(scene, camera.origin, ray_direction, quality.depth).to_display();
 
             // el rayo pinta su pixel y, si hay stride, los que lo acompanan
             for pixel in pixel_block.chunks_exact_mut(4) {
@@ -161,9 +164,9 @@ mod tests {
     use crate::color::Rgb;
     use crate::light::Light;
     use crate::material::Material;
-    use crate::sphere::Sphere;
+    use crate::object::Object;
 
-    /// Una esfera en el medio, para que el frame tenga fondo y objeto.
+    /// Un bloque en el medio, para que el frame tenga fondo y objeto.
     fn test_scene() -> Scene {
         let mut scene = Scene::for_test(
             vec![Light::new(
@@ -173,11 +176,11 @@ mod tests {
             )],
             Rgb::new(0.1, 0.1, 0.1),
         );
-        scene.objects = vec![Sphere {
-            center: Vector3::new(0.0, 0.0, -10.0),
-            radius: 3.0,
-            material: Material::plastic(Color::new(200, 120, 60, 255)),
-        }];
+        scene.objects = vec![Object::cube(
+            Vector3::new(0.0, 0.0, -10.0),
+            6.0,
+            Material::plastic(Color::new(200, 120, 60, 255)),
+        )];
         scene.bvh = Bvh::build(&mut scene.objects);
         scene
     }
@@ -230,7 +233,35 @@ mod tests {
         }
     }
 
-    /// El frame fino no puede quedar en bloques: con una esfera en el medio
+    /// Es lo unico que ata la camara inicial con el tamano de la escena que
+    /// sortea el ruido: sin esto podria salir un cielo vacio.
+    #[test]
+    fn the_opening_view_frames_the_terrain() {
+        let scene = Scene::from_seed(42);
+        let camera = Camera::framing(scene.center, scene.radius);
+        let mut framebuffer = Framebuffer::new(96, 96);
+
+        render(&mut framebuffer, &scene, &camera.basis(), Quality::FULL);
+
+        // el mismo camino que siguen los pixeles: el cielo tambien pasa por
+        // la curva de la luz, asi que comparar contra el color crudo diria
+        // que el cuadro entero es terreno
+        let sky = scene.background.to_display();
+        let pixels = framebuffer.pixels_mut();
+        let terrain = pixels
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0] != sky.r || pixel[1] != sky.g || pixel[2] != sky.b)
+            .count();
+
+        let share = terrain as f32 / (96.0 * 96.0);
+        assert!(
+            (0.08..0.9).contains(&share),
+            "el terreno ocupa el {:.0}% del cuadro",
+            share * 100.0
+        );
+    }
+
+    /// El frame fino no puede quedar en bloques: con un cuerpo en el medio
     /// tiene que haber filas y columnas vecinas distintas.
     #[test]
     fn full_quality_traces_every_pixel_on_its_own() {
@@ -244,6 +275,6 @@ mod tests {
             pixels[a..a + 3] != pixels[b..b + 3]
         });
 
-        assert!(neighbours_differ, "el borde de la esfera tendria que variar pixel a pixel");
+        assert!(neighbours_differ, "el borde del cuerpo tendria que variar pixel a pixel");
     }
 }

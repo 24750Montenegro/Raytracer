@@ -55,4 +55,23 @@ impl Framebuffer {
         renderer.draw_texture(texture, 0, 0, Color::WHITE);
     }
 
+    /// Guarda el cuadro como PNG. Es para sacar capturas sin depender de que
+    /// alguien tenga la ventana abierta en el momento justo.
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let mut image =
+            Image::gen_image_color(self.width as i32, self.height as i32, Color::BLACK);
+
+        for (index, pixel) in self.pixels.chunks_exact(4).enumerate() {
+            let x = (index % self.width as usize) as i32;
+            let y = (index / self.width as usize) as i32;
+            image.draw_pixel(x, y, Color::new(pixel[0], pixel[1], pixel[2], pixel[3]));
+        }
+
+        image.export_image(path);
+        if std::path::Path::new(path).exists() {
+            return Ok(());
+        }
+
+        Err(format!("no se pudo escribir {path}"))
+    }
 }

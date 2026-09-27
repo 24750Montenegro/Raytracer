@@ -4,22 +4,25 @@ use raylib::prelude::*;
 mod bvh;
 mod camera;
 mod color;
+mod cube;
 mod framebuffer;
+mod json;
 mod light;
 mod material;
+mod model;
+mod noise;
+mod object;
 mod projection;
 mod render;
 mod scene;
 mod shading;
-mod sphere;
+mod terrain;
+mod texture;
 
 use camera::Camera;
 use framebuffer::Framebuffer;
 use render::Quality;
 use scene::{Scene, BACKGROUND_COLOR};
-
-/// Que tan lejos arranca la camara respecto al tamano de la escena.
-const START_ZOOM: f32 = 1.6;
 
 fn main() {
     let window_width = 1000;
@@ -36,17 +39,59 @@ fn main() {
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
     framebuffer.set_background_color(BACKGROUND_COLOR);
 
-    let scene = Scene::preset();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `cargo run -- <semilla>` repite un terreno que gusto.
+    let seed = args.first().and_then(|arg| arg.parse().ok());
+    let scene = seed.map_or_else(Scene::random, Scene::from_seed);
 
-    // la camara arranca encuadrando la escena completa
-    let fit_distance = scene.radius / (projection::FOV / 2.0).tan();
-    let mut camera = Camera::new(scene.center, fit_distance * START_ZOOM);
+    // encuadra el terreno completo, visto desde arriba
+    let mut camera = Camera::framing(scene.center, scene.radius);
+
+    println!("semilla del terreno: {}", scene.seed);
+    println!("cuerpos trazados: {}", scene.objects.len());
+    println!("luces: {}", scene.lights.len());
+
+    // `cargo run -- [semilla] --shot salida.png [yaw pitch zoom isla]` traza
+    // un cuadro, lo guarda y sale. Sirve para sacar capturas sin depender de
+    // agarrar la ventana en la posicion justa. `isla` es 0, 1, 2 o 3 y le
+    // apunta la camara a esa isla en vez de al hueco que queda entre las
+    // cuatro.
+    if let Some(at) = args.iter().position(|arg| arg == "--shot") {
+        let Some(path) = args.get(at + 1) else {
+            eprintln!("--shot necesita el archivo donde guardar el cuadro");
+            return;
+        };
+
+        let number = |offset: usize| args.get(at + offset).and_then(|arg| arg.parse::<f32>().ok());
+        if let Some(yaw) = number(2) {
+            camera.yaw = yaw;
+        }
+        if let Some(pitch) = number(3) {
+            camera.set_pitch(pitch);
+        }
+        if let Some(zoom) = number(4) {
+            camera.zoom_by(zoom);
+        }
+        if let Some(island) = number(5) {
+            let centers = terrain::island_centers();
+            camera.target = centers[(island as usize).min(centers.len() - 1)];
+        }
+
+        render::render(&mut framebuffer, &scene, &camera.basis(), Quality::FULL);
+        match framebuffer.save(path) {
+            Ok(()) => println!("cuadro guardado en {path}"),
+            Err(problem) => eprintln!("{problem}"),
+        }
+        return;
+    }
 
     let mut last_mouse = window.get_mouse_position();
     // arranca en false para que el primer frame ya salga en calidad final
     let mut refined = false;
 
-    println!("arrastrar con click izquierdo = girar la escena | scroll = zoom");
+    println!(
+        "click izquierdo = girar | click derecho = correr la vista | scroll = zoom"
+    );
 
     while !window.window_should_close() {
         let mouse = window.get_mouse_position();
@@ -55,10 +100,12 @@ fn main() {
 
         let orbited = window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
             && camera.orbit(delta.x, delta.y);
+        let panned = window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_RIGHT)
+            && camera.pan(delta.x, delta.y);
         let zoomed = camera.zoom(window.get_mouse_wheel_move());
 
         // render escribe TODOS los pixeles, no hace falta limpiar antes
-        if orbited || zoomed {
+        if orbited || panned || zoomed {
             // mientras se mueve alcanza con el trazado grueso: la imagen
             // cambia entera en el cuadro siguiente igual
             render::render(&mut framebuffer, &scene, &camera.basis(), Quality::MOVING);
