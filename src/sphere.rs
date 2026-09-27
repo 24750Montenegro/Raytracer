@@ -12,8 +12,8 @@ pub struct Sphere {
 
 impl Sphere {
     /// Version barata del test: solo devuelve la distancia al hit.
-    /// El render no usa punto ni normal, asi que no vale la pena calcularlos
-    /// (eso ahorra una raiz y una normalizacion por esfera y por pixel).
+    /// El punto y la normal se calculan aparte y solo para la esfera que
+    /// gano, no para las cientos que el rayo descarta.
     #[inline(always)]
     pub fn hit_distance(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Option<f32> {
         let l = self.center - *ray_origin;
@@ -41,5 +41,13 @@ impl Sphere {
             return Some(t1);
         }
         None
+    }
+
+    /// Normal unitaria en un punto de la superficie.
+    /// Dividir entre el radio ahorra la raiz de normalizar: el punto ya esta
+    /// justo a distancia radio del centro.
+    #[inline(always)]
+    pub fn normal_at(&self, point: Vector3) -> Vector3 {
+        (point - self.center) * (1.0 / self.radius)
     }
 }

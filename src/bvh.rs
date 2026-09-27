@@ -173,21 +173,22 @@ impl Bvh {
         node_index
     }
 
-    /// Esfera mas cercana que toca el rayo, o None si no pega con ninguna.
-    /// El indice es sobre la lista ya reordenada por build.
+    /// Esfera mas cercana que toca el rayo, con la distancia al impacto.
+    /// El indice es sobre la lista ya reordenada por build. Devolver la
+    /// distancia aca evita repetir el test de la esfera ganadora al sombrear.
     pub fn nearest_hit(
         &self,
         origin: &Vector3,
         direction: &Vector3,
         objects: &[Sphere],
-    ) -> Option<usize> {
+    ) -> Option<(usize, f32)> {
         if self.nodes.is_empty() {
             return None;
         }
 
         let inv_dir = Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
         let mut best_distance = f32::INFINITY;
-        let mut best: Option<usize> = None;
+        let mut best: Option<(usize, f32)> = None;
 
         let mut stack = [0u32; MAX_STACK];
         let mut depth = 0usize;
@@ -204,7 +205,7 @@ impl Bvh {
                         if let Some(distance) = sphere.hit_distance(origin, direction) {
                             if distance < best_distance {
                                 best_distance = distance;
-                                best = Some(first + offset);
+                                best = Some((first + offset, distance));
                             }
                         }
                     }
@@ -219,6 +220,58 @@ impl Bvh {
 
             if depth == 0 {
                 return best;
+            }
+            depth -= 1;
+            current = stack[depth];
+        }
+    }
+
+    /// Hay algo tapando el tramo entre origin y una distancia dada?
+    ///
+    /// A diferencia de nearest_hit no interesa cual es la esfera mas cercana
+    /// ni a que distancia: con encontrar una sola que estorbe alcanza, asi
+    /// que corta apenas la encuentra. Es lo que necesitan los rayos de sombra.
+    pub fn any_hit(
+        &self,
+        origin: &Vector3,
+        direction: &Vector3,
+        max_distance: f32,
+        objects: &[Sphere],
+    ) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+
+        let inv_dir = Vector3::new(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
+
+        let mut stack = [0u32; MAX_STACK];
+        let mut depth = 0usize;
+        let mut current = 0u32;
+
+        loop {
+            let node = &self.nodes[current as usize];
+
+            if node.bounds.hit(origin, &inv_dir, max_distance) {
+                if node.count > 0 {
+                    let first = node.payload as usize;
+                    let last = first + node.count as usize;
+                    for sphere in &objects[first..last] {
+                        if let Some(distance) = sphere.hit_distance(origin, direction) {
+                            if distance < max_distance {
+                                return true;
+                            }
+                        }
+                    }
+                } else if depth < MAX_STACK {
+                    stack[depth] = node.payload;
+                    depth += 1;
+                    current += 1;
+                    continue;
+                }
+            }
+
+            if depth == 0 {
+                return false;
             }
             depth -= 1;
             current = stack[depth];
@@ -285,7 +338,7 @@ mod tests {
                     rng.range(-5.0, 5.0),
                 ),
                 radius: rng.range(0.05, 0.6),
-                material: Material { diffuse: Color::new(10, 20, 30, 255) },
+                material: Material::matte(Color::new(10, 20, 30, 255)),
             })
             .collect()
     }
@@ -304,8 +357,7 @@ mod tests {
         origin: &Vector3,
         direction: &Vector3,
     ) -> Option<f32> {
-        bvh.nearest_hit(origin, direction, objects)
-            .and_then(|i| objects[i].hit_distance(origin, direction))
+        bvh.nearest_hit(origin, direction, objects).map(|(_, d)| d)
     }
 
     #[test]
@@ -350,7 +402,7 @@ mod tests {
         let mut objects = vec![Sphere {
             center: Vector3::new(0.0, 0.0, -5.0),
             radius: 1.0,
-            material: Material { diffuse: Color::new(1, 2, 3, 255) },
+            material: Material::matte(Color::new(1, 2, 3, 255)),
         }];
         let bvh = Bvh::build(&mut objects);
 
@@ -380,12 +432,63 @@ mod tests {
             .map(|i| Sphere {
                 center: Vector3::new(0.0, 0.0, -5.0),
                 radius: 0.1 + i as f32 * 0.01,
-                material: Material { diffuse: Color::new(0, 0, 0, 255) },
+                material: Material::matte(Color::new(0, 0, 0, 255)),
             })
             .collect();
         let bvh = Bvh::build(&mut objects);
 
         let hit = bvh_distance(&bvh, &objects, &Vector3::zero(), &Vector3::new(0.0, 0.0, -1.0));
         assert!(hit.is_some());
+    }
+
+    /// any_hit tiene que coincidir con revisar todas las esferas a mano.
+    #[test]
+    fn any_hit_matches_brute_force() {
+        let mut objects = random_scene(120, 21);
+        let bvh = Bvh::build(&mut objects);
+
+        let mut rng = Lcg(555);
+        for _ in 0..2000 {
+            let origin = Vector3::new(
+                rng.range(-10.0, 10.0),
+                rng.range(-10.0, 10.0),
+                rng.range(-10.0, 10.0),
+            );
+            let direction = Vector3::new(
+                rng.range(-1.0, 1.0),
+                rng.range(-1.0, 1.0),
+                rng.range(-1.0, 1.0),
+            );
+            if direction.length() < 0.1 {
+                continue;
+            }
+            let direction = direction.normalized();
+            let max_distance = rng.range(0.5, 20.0);
+
+            let expected =
+                brute_force(&objects, &origin, &direction).is_some_and(|d| d < max_distance);
+
+            assert_eq!(
+                expected,
+                bvh.any_hit(&origin, &direction, max_distance, &objects)
+            );
+        }
+    }
+
+    /// Lo que queda mas lejos que el limite no tapa nada.
+    #[test]
+    fn any_hit_ignores_blockers_past_the_limit() {
+        let mut objects = vec![Sphere {
+            center: Vector3::new(0.0, 0.0, -5.0),
+            radius: 1.0,
+            material: Material::matte(Color::new(1, 2, 3, 255)),
+        }];
+        let bvh = Bvh::build(&mut objects);
+
+        let origin = Vector3::zero();
+        let direction = Vector3::new(0.0, 0.0, -1.0);
+
+        assert!(bvh.any_hit(&origin, &direction, 10.0, &objects));
+        assert!(!bvh.any_hit(&origin, &direction, 3.0, &objects));
     }
 }
