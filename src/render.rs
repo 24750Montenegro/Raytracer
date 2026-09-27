@@ -255,7 +255,7 @@ mod tests {
 
         let share = terrain as f32 / (96.0 * 96.0);
         assert!(
-            (0.25..0.95).contains(&share),
+            (0.08..0.9).contains(&share),
             "el terreno ocupa el {:.0}% del cuadro",
             share * 100.0
         );

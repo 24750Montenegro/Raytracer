@@ -79,6 +79,13 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
 
     let mut color = shade(scene, material, base, point, bumped, view_dir, Some(&relief));
 
+    // lo que el cuerpo emite por su cuenta va aparte del sombreado: no
+    // depende de que le llegue ninguna luz, que es justamente lo que hace
+    // que una lampara se vea encendida en la sombra y de noche
+    if material.emission > 0.0 {
+        color = color + base * material.emission;
+    }
+
     if depth == 0 {
         return color;
     }
@@ -93,9 +100,12 @@ pub fn trace(scene: &Scene, origin: Vector3, direction: Vector3, depth: u32) -> 
             reflect(direction, facing).normalized()
         };
 
+        // un metal devuelve el mundo tenido con su color; cualquier otra
+        // cosa lo devuelve tal cual
         color = color
             + trace(scene, offset(point, facing, bounce), bounce, depth - 1)
-                * material.albedo.reflection;
+                * material.albedo.reflection
+                * mirror_tint(material, base);
     }
 
     if material.albedo.refraction > 0.0 {
@@ -213,6 +223,13 @@ fn shade(
     for light in &scene.lights {
         let (to_light, distance) = light.direction_from(point);
 
+        // lo primero es lo mas barato: una lampara que no llega hasta aca se
+        // descarta con una resta, antes de tocar la geometria
+        let reach = light.falloff(distance);
+        if reach <= 0.0 {
+            continue;
+        }
+
         // ley del coseno: la superficie recibe menos luz cuanto mas de canto
         // le llega. De espaldas a la luz (producto punto <= 0) no recibe nada.
         let lambert = normal.dot(to_light);
@@ -234,7 +251,7 @@ fn shade(
             continue;
         }
 
-        diffuse = diffuse + light.color * (light.intensity * lambert * lit);
+        diffuse = diffuse + light.color * (light.intensity * reach * lambert * lit);
 
         if material.albedo.specular <= 0.0 {
             continue;
@@ -244,13 +261,30 @@ fn shade(
         // El exponente controla que tan cerrado queda ese brillo.
         let bounce = reflect(-to_light, normal).dot(view_dir);
         if bounce > 0.0 {
-            let highlight = bounce.powf(material.shininess) * light.intensity * lit;
+            let highlight = bounce.powf(material.shininess) * light.intensity * reach * lit;
             specular = specular + light.color * highlight;
         }
     }
 
     // albedo: cuanta luz sale por cada camino en vez de absorberse
-    base * diffuse * material.albedo.diffuse + specular * material.albedo.specular
+    base * diffuse * material.albedo.diffuse
+        + specular * material.albedo.specular * mirror_tint(material, base)
+}
+
+/// Con que color sale lo que la superficie refleja: el suyo si es un metal,
+/// blanco si no.
+///
+/// En un dielectrico (piedra, madera, plastico) la luz que rebota en la
+/// superficie no se mete en el material, asi que sale con el color de la luz
+/// y el brillo es blanco. En un metal no hay adentro donde meterse: el
+/// rebote se lleva puesto el color del metal. Por eso una chapa de oro tiene
+/// brillo dorado y una piedra amarilla, blanco.
+fn mirror_tint(material: &Material, base: Rgb) -> Rgb {
+    if material.metallic {
+        base
+    } else {
+        Rgb::new(1.0, 1.0, 1.0)
+    }
 }
 
 /// Hay otro cuerpo entre este punto y la luz?
@@ -732,5 +766,80 @@ mod tests {
             clear.r as i32 - clear.b as i32 > solid.r as i32 - solid.b as i32,
             "por el agua tendria que verse el rojo de atras: {clear:?} vs {solid:?}"
         );
+    }
+
+    // -- lo que emite luz por su cuenta ------------------------------------
+
+    /// Una lampara se ve encendida aunque no le llegue nada: esa es toda la
+    /// diferencia entre emitir luz y reflejarla.
+    #[test]
+    fn a_lamp_shines_with_no_light_in_the_scene() {
+        let dark = Scene::for_test(Vec::new(), Rgb::new(0.0, 0.0, 0.0));
+        let mut scene = dark;
+        scene.objects = vec![
+            Object::cube(
+                Vector3::new(0.0, 0.0, -5.0),
+                2.0,
+                Material::lamp(Color::new(200, 240, 235, 255), 1.0),
+            ),
+            // el mismo bloque sin emision, corrido al costado
+            Object::cube(
+                Vector3::new(6.0, 0.0, -5.0),
+                2.0,
+                Material::lamp(Color::new(200, 240, 235, 255), 0.0),
+            ),
+        ];
+        scene.bvh = Bvh::build(&mut scene.objects);
+
+        let lit = trace(&scene, Vector3::zero(), Vector3::new(0.0, 0.0, -1.0), 0);
+        let unlit = trace(
+            &scene,
+            Vector3::new(6.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, -1.0),
+            0,
+        );
+
+        assert!(lit.r > 0.5, "la lampara salio en {lit:?}");
+        assert!(unlit.r < 0.01, "el apagado tendria que estar negro: {unlit:?}");
+    }
+
+    /// Y lo que emite sale con su propio color, no en blanco.
+    #[test]
+    fn what_a_lamp_emits_carries_its_own_color() {
+        let mut scene = Scene::for_test(Vec::new(), Rgb::new(0.0, 0.0, 0.0));
+        scene.objects = vec![Object::cube(
+            Vector3::new(0.0, 0.0, -5.0),
+            2.0,
+            Material::lamp(Color::new(40, 255, 200, 255), 1.0),
+        )];
+        scene.bvh = Bvh::build(&mut scene.objects);
+
+        let color = trace(&scene, Vector3::zero(), Vector3::new(0.0, 0.0, -1.0), 0);
+
+        assert!(color.g > color.r * 2.0, "tendria que salir verde: {color:?}");
+        assert!(color.b > color.r, "{color:?}");
+    }
+
+    /// Una lampara alumbra lo que tiene al lado y nada mas. Es lo que la hace
+    /// barata: un punto que le queda lejos ni siquiera llega al rayo de
+    /// sombra.
+    #[test]
+    fn a_lamp_only_lights_what_is_next_to_it() {
+        let mut scene = Scene::for_test(Vec::new(), Rgb::new(0.0, 0.0, 0.0));
+        scene.lights = vec![Light::lamp(
+            Vector3::new(0.0, -2.0, 0.0),
+            Rgb::new(1.0, 1.0, 1.0),
+            1.0,
+            6.0,
+        )];
+
+        let material = white_matte(1.0);
+        let up = Vector3::new(0.0, -1.0, 0.0);
+
+        let close = shade_color(&scene, &material, Vector3::zero(), up, VIEW);
+        let far = shade_color(&scene, &material, Vector3::new(0.0, 0.0, 20.0), up, VIEW);
+
+        assert!(close.r > 100, "pegado a la lampara salio {}", close.r);
+        assert_eq!(far.r, 0, "a veinte metros no tendria que llegar nada");
     }
 }

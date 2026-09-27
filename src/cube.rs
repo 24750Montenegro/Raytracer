@@ -16,16 +16,57 @@ const MIN_SIZE: f32 = 1e-4;
 pub struct Cube {
     pub min: Vector3,
     pub max: Vector3,
+    /// Esquina y lado del bloque al que pertenece, que es contra lo que se
+    /// miden las coordenadas de textura. En un bloque entero coinciden con
+    /// los suyos; en una de las cajitas de un modelo 3D no, y ahi esta la
+    /// gracia: una piedra que sobresale medio texel del adoquin tiene que
+    /// pintarse con el texel del adoquin que le toca, no con la textura
+    /// entera estirada sobre una cajita de medio texel de lado.
+    uv_origin: Vector3,
+    uv_scale: f32,
     pub material: Material,
 }
 
 impl Cube {
     pub fn new(center: Vector3, size: f32, material: Material) -> Self {
-        let half = size.max(MIN_SIZE) * 0.5;
-        let half = Vector3::new(half, half, half);
+        let size = size.max(MIN_SIZE);
+        let half = Vector3::new(size * 0.5, size * 0.5, size * 0.5);
+        let min = center - half;
         Cube {
-            min: center - half,
+            min,
             max: center + half,
+            uv_origin: min,
+            uv_scale: 1.0 / size,
+            material,
+        }
+    }
+
+    /// Una cajita de un modelo de bloque, en coordenadas locales de 0 a 1.
+    ///
+    /// La decoracion del pack sobresale un poco del bloque, asi que local
+    /// puede salirse de ese rango; lo que no cambia nunca es contra que se
+    /// miden las coordenadas de textura, que es el bloque entero.
+    pub fn part(
+        block_min: Vector3,
+        block_size: f32,
+        local_min: Vector3,
+        local_max: Vector3,
+        material: Material,
+    ) -> Self {
+        let block_size = block_size.max(MIN_SIZE);
+        let corner = |local: Vector3| block_min + local * block_size;
+        let (min, max) = (corner(local_min), corner(local_max));
+
+        Cube {
+            // una cajita de lado cero no tiene caras que orientar
+            min,
+            max: Vector3::new(
+                max.x.max(min.x + MIN_SIZE),
+                max.y.max(min.y + MIN_SIZE),
+                max.z.max(min.z + MIN_SIZE),
+            ),
+            uv_origin: block_min,
+            uv_scale: 1.0 / block_size,
             material,
         }
     }
@@ -127,8 +168,9 @@ impl Cube {
             _ => (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 0.0, -1.0)),
         };
 
-        let local = point - self.min;
-        let size = self.max.x - self.min.x;
+        // contra el bloque, no contra la cajita: asi la decoracion del
+        // modelo 3D sale pintada con los texels que le corresponden
+        let local = point - self.uv_origin;
 
         Surface {
             normal,
@@ -136,8 +178,8 @@ impl Cube {
             bitangent,
             // los ejes negativos dan coordenadas negativas: rem_euclid las
             // devuelve al rango, con la textura espejada en esa cara
-            u: (local.dot(tangent) / size).rem_euclid(1.0),
-            v: (local.dot(bitangent) / size).rem_euclid(1.0),
+            u: (local.dot(tangent) * self.uv_scale).rem_euclid(1.0),
+            v: (local.dot(bitangent) * self.uv_scale).rem_euclid(1.0),
         }
     }
 }

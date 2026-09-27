@@ -66,6 +66,13 @@ impl Rgb {
 
         (self * (compress(peak) / peak)).to_color()
     }
+
+    /// Brillo percibido. Los tres canales no pesan igual: el ojo ve mucho
+    /// mas el verde que el azul, asi que un azul y un verde del mismo valor
+    /// no se leen igual de claros.
+    pub fn luma(self) -> f32 {
+        self.r * 0.2126 + self.g * 0.7152 + self.b * 0.0722
+    }
 }
 
 /// Curva de la zona alta: derecha hasta la rodilla y de ahi asintotica a 1.0,

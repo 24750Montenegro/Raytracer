@@ -1,6 +1,15 @@
 // noise.rs
-// Ruido de gradiente (Perlin) con semilla, y el fbm que suma octavas del
-// mismo campo. De aca sale la altura de cada columna del terreno.
+// Ruido de gradiente (Perlin) con semilla, y las tres formas de leerlo que
+// usa el terreno:
+//
+//   - `fbm` suma octavas del mismo campo: la primera pone montanas y valles,
+//     las siguientes el detalle.
+//   - `warp` corre el punto de muestreo con el propio campo antes de leerlo.
+//     Es lo que le saca al Perlin su aire de burbujas parejas.
+//   - `ridged` lo pliega sobre si mismo: donde el campo cruza cero queda un
+//     filo en vez de una cima redonda, que es la forma de una sierra.
+//
+// De aca sale la altura de cada columna del terreno.
 use std::collections::hash_map::RandomState;
 use std::f32::consts::{SQRT_2, TAU};
 use std::hash::{BuildHasher, Hasher};
@@ -11,6 +20,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// todas las octavas se anulan en los mismos lugares y el terreno sale con
 /// una cuadricula de hoyos regulares.
 const OCTAVE_SHIFT: f32 = 31.7;
+
+/// Cuanto se aleja la lectura que deforma el dominio de la que se deforma.
+/// Cualquier numero grande sirve: lo unico que importa es que las dos caigan
+/// en partes del campo sin relacion entre si.
+const WARP_OFFSET: f32 = 57.3;
+/// La deformacion va con pocas octavas: lo que tiene que hacer es doblar el
+/// campo en grande, no agregarle detalle.
+const WARP_OCTAVES: u32 = 2;
 
 /// splitmix64. Dos entradas parecidas tienen que dar salidas sin ninguna
 /// relacion, o los gradientes quedan alineados y el ruido muestra rayas.
@@ -91,6 +108,58 @@ impl Noise {
 
         // el maximo teorico del ruido de gradiente en 2D es sqrt(2)/2
         (lerp(near, far, fade(dz)) * SQRT_2).clamp(-1.0, 1.0)
+    }
+
+    /// Corre el punto de muestreo usando el propio campo antes de leerlo.
+    ///
+    /// Es lo que le saca al ruido de Perlin la cara de ruido de Perlin. Sin
+    /// esto sus curvas de nivel son burbujas redondeadas, todas mas o menos
+    /// del mismo tamano y repartidas parejo, y un terreno hecho con eso se
+    /// lee enseguida como lomas de algodon. Deformando el dominio, esas
+    /// mismas curvas se estiran, se doblan y se muerden entre si, que es lo
+    /// que hace un valle: una forma que no se puede describir con un circulo.
+    ///
+    /// Los dos ejes se corren con lecturas de puntos bien separados del
+    /// campo. Con la misma lectura para los dos, el corrimiento seria siempre
+    /// en diagonal y el mapa entero saldria peinado para el mismo lado.
+    ///
+    /// `strength` va en las mismas unidades que x y z: cuanto se puede correr
+    /// un punto, medido en celdas del ruido.
+    pub fn warp(&self, x: f32, z: f32, strength: f32) -> (f32, f32) {
+        if strength == 0.0 {
+            return (x, z);
+        }
+
+        let along_x = self.fbm(x + WARP_OFFSET, z - WARP_OFFSET, WARP_OCTAVES);
+        let along_z = self.fbm(x - WARP_OFFSET * 2.0, z + WARP_OFFSET * 3.0, WARP_OCTAVES);
+
+        (x + along_x * strength, z + along_z * strength)
+    }
+
+    /// Ruido plegado sobre si mismo, de 0 en el fondo del valle a 1 en la
+    /// cresta.
+    ///
+    /// El valor absoluto dobla el campo donde cruza cero, y ese doblez es un
+    /// filo: no una loma con su cima redonda, sino una arista. Elevarlo al
+    /// cuadrado despues deja la cresta fina y el valle ancho, que es la forma
+    /// de una sierra de verdad, donde lo que abunda es la ladera y la cumbre
+    /// es una linea.
+    pub fn ridged(&self, x: f32, z: f32, octaves: u32) -> f32 {
+        let mut total = 0.0;
+        let mut amplitude = 1.0;
+        let mut frequency = 1.0;
+        let mut reach = 0.0;
+
+        for octave in 0..octaves.max(1) {
+            let shift = octave as f32 * OCTAVE_SHIFT;
+            let folded = 1.0 - self.sample(x * frequency + shift, z * frequency - shift).abs();
+            total += folded * folded * amplitude;
+            reach += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+        }
+
+        total / reach
     }
 
     /// Suma de octavas: cada una al doble de frecuencia y a la mitad de
@@ -197,6 +266,74 @@ mod tests {
         let low = samples.iter().cloned().fold(f32::INFINITY, f32::min);
         let high = samples.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         assert!(high - low > 0.5, "el campo se movio apenas {}", high - low);
+    }
+
+    /// La deformacion tiene que mover el punto, pero sin teletransportarlo:
+    /// si el corrimiento pasara de `strength` el campo se rompe en pedazos
+    /// que no se tocan.
+    #[test]
+    fn warping_shifts_the_point_within_its_reach() {
+        let noise = Noise::new(5);
+        let mut moved = 0;
+
+        for step in 0..200 {
+            let (x, z) = (step as f32 * 0.31, step as f32 * -0.17);
+            let (wx, wz) = noise.warp(x, z, 2.0);
+
+            assert!((wx - x).abs() <= 2.0, "corrio {} en x", wx - x);
+            assert!((wz - z).abs() <= 2.0, "corrio {} en z", wz - z);
+            if (wx - x).abs() > 0.05 || (wz - z).abs() > 0.05 {
+                moved += 1;
+            }
+        }
+
+        assert!(moved > 150, "solo se movieron {moved} de 200 puntos");
+    }
+
+    /// Y los dos ejes tienen que correrse por su cuenta: con el mismo
+    /// corrimiento en los dos, el mapa entero sale peinado en diagonal.
+    #[test]
+    fn the_two_axes_warp_independently() {
+        let noise = Noise::new(13);
+        let same = (0..200)
+            .filter(|step| {
+                let (x, z) = (*step as f32 * 0.29, *step as f32 * 0.43);
+                let (wx, wz) = noise.warp(x, z, 3.0);
+                ((wx - x) - (wz - z)).abs() < 0.1
+            })
+            .count();
+
+        assert!(same < 40, "{same} de 200 puntos se corrieron parejo");
+    }
+
+    #[test]
+    fn warping_with_no_reach_leaves_the_point_alone() {
+        let noise = Noise::new(8);
+        assert_eq!(noise.warp(3.5, -1.25, 0.0), (3.5, -1.25));
+    }
+
+    /// El ruido plegado va de 0 a 1, y pasa mucho mas tiempo abajo que
+    /// arriba: eso es lo que hace que la cresta sea una linea y no una
+    /// meseta.
+    #[test]
+    fn the_folded_field_is_mostly_hillside() {
+        let noise = Noise::new(21);
+        let samples: Vec<f32> = (0..2000)
+            .map(|step| {
+                let (x, z) = (step as f32 % 50.0 * 0.4, (step / 50) as f32 * 0.4);
+                noise.ridged(x, z, 3)
+            })
+            .collect();
+
+        assert!(samples.iter().all(|value| (0.0..=1.0).contains(value)));
+
+        let crests = samples.iter().filter(|value| **value > 0.8).count();
+        assert!(crests > 0, "el campo nunca llega a una cresta");
+        assert!(
+            crests * 4 < samples.len(),
+            "{crests} de {} muestras son cresta",
+            samples.len()
+        );
     }
 
     #[test]

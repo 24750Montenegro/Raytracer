@@ -15,14 +15,20 @@
 // chocar con la primera pared. Eso corre el dibujo segun desde donde se
 // mire, hace que un bulto tape lo que tiene detras y que un hueco se quede
 // sin luz, que es lo que hace que un bloque se vea tallado y no estampado.
-// Es la misma cuenta que usan los packs 3D de Minecraft, solo que aca la
-// hace el raytracer en vez de un shader.
+// Es la misma cuenta que usan los shaders de Minecraft.
 //
-// Las texturas salen del pack Vanilla Normals Renewed, que trae el color de
-// cada bloque y, al lado, un mapa normal dibujado a mano. Estan en
-// assets/blocks, y su procedencia y condiciones de uso, en el CREDITS.md de
-// esa carpeta. Lo que el pack no trae, como el agua, se genera aca con ruido
-// a partir de una receta.
+// Ahora bien: el paralaje solo hunde hacia adentro. La silueta del cubo
+// queda intacta, asi que de canto el bloque sigue siendo un cuadrado
+// perfecto. Eso lo resuelve el pack Classic 3D poniendo geometria de verdad
+// (ver src/model.rs), y por eso los bloques que ese pack decora van con el
+// relieve trazado apagado: dos relieves contando lo mismo no se suman, se
+// pelean. El paralaje queda para todo lo demas, que es la mayoria de los
+// bloques naturales.
+//
+// El color de cada bloque sale de las texturas de Minecraft 1.20.1 y los
+// mapas normales, del pack Vanilla Normals Renewed. Estan en assets/blocks;
+// su procedencia y condiciones de uso, en assets/CREDITS.md. Lo que no viene
+// de ahi, como el agua, se dibuja aca con ruido a partir de una receta.
 use raylib::prelude::*;
 
 use crate::color::Rgb;
@@ -57,6 +63,11 @@ const SHADOW_STRENGTH: f32 = 0.8;
 /// mas se corre la textura, y sin tope ese corrimiento se va al infinito
 /// justo en el borde de cada cara.
 const MIN_SLANT: f32 = 0.25;
+
+/// Cuanto relieve se le saca al brillo cuando el bloque no trae mapa normal
+/// dibujado. Va bajo: el brillo de un texel no es su altura, es solo lo que
+/// mas se le parece, y exagerarlo convierte cada mancha de color en un pozo.
+const LUMA_BUMP: f32 = 0.45;
 
 /// Pasadas de relajacion para levantar el mapa de alturas del mapa normal.
 /// Son 256 texels y se hace una sola vez al abrir el programa; con estas la
@@ -161,9 +172,23 @@ impl Texture {
     /// El tinte es para las texturas que el juego guarda en gris porque las
     /// colorea segun el bioma, como el pasto y las hojas. Para el resto va
     /// en blanco y no cambia nada.
+    /// El pack de normales no cubre todos los bloques. Para los que no trae,
+    /// el relieve sale del propio color: en una textura de Minecraft lo que
+    /// esta hundido se dibuja mas oscuro, asi que el brillo de cada texel es
+    /// una buena primera aproximacion a su altura. Peor que un mapa dibujado
+    /// a mano, mucho mejor que una cara plana.
     pub fn load(name: &str, tint: Color) -> Result<Self, String> {
         let albedo = load_albedo(&format!("{ASSETS}/{name}.png"), tint)?;
-        let normal = load_normals(&format!("{ASSETS}/{name}_n.png"))?;
+
+        // se pregunta por el archivo antes de abrirlo: pedirselo a raylib y
+        // que falle llena la consola de avisos por cada bloque sin mapa
+        let normals = format!("{ASSETS}/{name}_n.png");
+        if !std::path::Path::new(&normals).exists() {
+            let height: Vec<f32> = albedo.iter().map(|texel| texel.luma()).collect();
+            return Ok(Texture::from_relief(albedo, &height, LUMA_BUMP));
+        }
+        let normal = load_normals(&normals)?;
+
         // el pack dibuja normales y no alturas, asi que el mapa de alturas
         // que necesita el paralaje hay que levantarlo de ahi
         let height = height_from_normals(&normal);
@@ -282,6 +307,11 @@ impl Texture {
     pub fn with_depth(mut self, depth: f32) -> Self {
         self.depth = depth.max(0.0);
         self
+    }
+
+    /// Si su relieve se traza o la cara se dibuja plana.
+    pub fn carved(&self) -> bool {
+        self.depth > 0.0
     }
 
     /// Color y normal del texel en el que cae (u, v).
@@ -513,18 +543,22 @@ fn normalized(height: &[f32]) -> Vec<f32> {
     height.iter().map(|texel| (texel - low) / range).collect()
 }
 
-/// Lee un PNG de 16x16 y devuelve sus texels en RGBA.
+/// Lee un PNG de bloque y devuelve sus texels en RGBA.
+///
+/// Los bloques animados (el magma, el farol de mar, la prismarina) no vienen
+/// en 16x16 sino en una tira vertical con un cuadro debajo del otro. Aca la
+/// escena no se mueve, asi que se toma el primero y listo.
 fn read_tile(path: &str) -> Result<Vec<Color>, String> {
     let image = Image::load_image(path).map_err(|error| error.to_string())?;
+    let (width, height) = (image.width as usize, image.height as usize);
 
-    if image.width as usize != TILE || image.height as usize != TILE {
+    if width != TILE || height < TILE || height % TILE != 0 {
         return Err(format!(
-            "{path} mide {}x{} y se esperaba {TILE}x{TILE}",
-            image.width, image.height
+            "{path} mide {width}x{height} y se esperaba {TILE} de ancho por un alto multiplo de {TILE}"
         ));
     }
 
-    Ok(image.get_image_data().to_vec())
+    Ok(image.get_image_data()[..TILE * TILE].to_vec())
 }
 
 fn load_albedo(path: &str, tint: Color) -> Result<Vec<Rgb>, String> {

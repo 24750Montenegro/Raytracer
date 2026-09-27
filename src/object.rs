@@ -22,6 +22,19 @@ impl Object {
         Object::Cube(Cube::new(center, size, material))
     }
 
+    /// Una de las cajitas de un modelo 3D, en coordenadas locales del bloque.
+    pub fn part(
+        block_min: Vector3,
+        block_size: f32,
+        local_min: Vector3,
+        local_max: Vector3,
+        material: Material,
+    ) -> Self {
+        Object::Cube(Cube::part(
+            block_min, block_size, local_min, local_max, material,
+        ))
+    }
+
     /// Distancia al impacto mas cercano por delante del origen.
     /// inv_dir es el inverso componente a componente de la direccion, que el
     /// BVH ya calcula una vez por rayo y el cubo necesita seis veces.
