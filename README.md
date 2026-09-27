@@ -10,6 +10,8 @@ plana.
 
 ## Demostración
 
+https://youtu.be/Bn879OOaCaQ
+
 <video src="assets/demo_video.mp4" controls="controls" width="100%"></video>
 
 ## Cómo ejecutarlo
