@@ -8,6 +8,10 @@ plana.
 
 ![Las cuatro islas](docs/escena.png)
 
+## Demostración
+
+<video src="assets/demo_video.mp4" controls="controls" width="100%"></video>
+
 ## Cómo ejecutarlo
 
 Hace falta [Rust](https://rustup.rs/). La única dependencia es `raylib`, y se
