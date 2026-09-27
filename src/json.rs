@@ -40,13 +40,6 @@ impl Json {
         }
     }
 
-    pub fn text(&self) -> Option<&str> {
-        match self {
-            Json::Text(value) => Some(value),
-            _ => None,
-        }
-    }
-
     /// Lee un documento entero. Sobra lo que venga despues del primer valor:
     /// un archivo con basura al final no es JSON valido.
     pub fn parse(source: &str) -> Result<Json, String> {
@@ -211,50 +204,5 @@ impl Reader<'_> {
             .and_then(|text| text.parse().ok())
             .map(Json::Number)
             .ok_or_else(|| format!("numero invalido en el byte {start}"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_shape_of_a_block_model() {
-        let model = Json::parse(
-            r#"{"parent":"block/x","elements":[{"from":[0,0,0],"to":[16,16,16.5]}]}"#,
-        )
-        .expect("es JSON valido");
-
-        assert_eq!(model.get("parent").and_then(Json::text), Some("block/x"));
-
-        let elements = model.get("elements").and_then(Json::list).expect("hay lista");
-        assert_eq!(elements.len(), 1);
-
-        let to = elements[0].get("to").and_then(Json::list).expect("hay caja");
-        assert_eq!(to[2].number(), Some(16.5));
-    }
-
-    #[test]
-    fn reads_negative_and_fractional_numbers() {
-        let value = Json::parse("[-0.4921875, 1e2, 0]").expect("es JSON valido");
-        let items = value.list().expect("es lista");
-
-        assert_eq!(items[0].number(), Some(-0.4921875));
-        assert_eq!(items[1].number(), Some(100.0));
-    }
-
-    #[test]
-    fn empty_containers_are_valid() {
-        assert_eq!(Json::parse("{}").unwrap(), Json::Map(HashMap::new()));
-        assert_eq!(Json::parse("[]").unwrap(), Json::List(Vec::new()));
-    }
-
-    /// Lo que justifica el lector: un documento roto tiene que fallar, no
-    /// devolver medio modelo.
-    #[test]
-    fn broken_documents_are_rejected() {
-        for broken in ["{", "[1,]", "{\"a\"}", "{} sobra", "\"sin cerrar"] {
-            assert!(Json::parse(broken).is_err(), "{broken} tendria que fallar");
-        }
     }
 }

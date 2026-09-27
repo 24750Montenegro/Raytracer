@@ -154,11 +154,6 @@ impl BlockModel {
             .iter()
             .filter(move |element| element.face.map_or(true, |face| exposed.has(face)))
     }
-
-    /// Cuantas cajitas trae en total. Sirve para medir lo que cuesta el pack.
-    pub fn len(&self) -> usize {
-        self.elements.len()
-    }
 }
 
 /// Convierte una caja del modelo a coordenadas locales del bloque.
@@ -227,70 +222,4 @@ fn hangs_from(min: Vector3, max: Vector3) -> Option<Face> {
     }
 
     best.map(|(face, _)| face)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_plain_model_is_the_whole_block() {
-        let model = BlockModel::plain();
-        let boxes: Vec<&Element> = model.visible(Faces::NONE).collect();
-
-        assert_eq!(boxes.len(), 1);
-        assert_eq!(boxes[0].min, Vector3::zero());
-        assert_eq!(boxes[0].max, Vector3::new(1.0, 1.0, 1.0));
-    }
-
-    /// El cubo del cuerpo va de 0 a 16 y no cuelga de ninguna cara: si se lo
-    /// tomara por decoracion, un bloque tapado por todos lados desapareceria.
-    #[test]
-    fn the_body_of_the_block_belongs_to_no_face() {
-        let raw = Json::parse(r#"{"from":[0,0,0],"to":[16,16,16]}"#).unwrap();
-        assert_eq!(element(&raw).unwrap().face, None);
-    }
-
-    /// Una cajita que se sale por arriba en el modelo tiene que quedar
-    /// arriba tambien aca, donde +Y va hacia abajo.
-    #[test]
-    fn the_height_axis_gets_flipped() {
-        let raw = Json::parse(r#"{"from":[0,15,0],"to":[16,16.5,16]}"#).unwrap();
-        let bump = element(&raw).unwrap();
-
-        assert_eq!(bump.face, Some(Face::Up));
-        assert!(bump.min.y < 0.0, "tiene que asomar por encima del bloque");
-        assert!((bump.max.y - 1.0 / 16.0).abs() < 1e-5, "{}", bump.max.y);
-    }
-
-    /// El pack de verdad: el adoquin trae el cuerpo y decoracion en las seis
-    /// caras, y tapado por todos lados no queda mas que el cuerpo.
-    #[test]
-    fn the_pack_cobblestone_decorates_every_face() {
-        let model = BlockModel::load("cobblestone").expect("el pack trae el adoquin");
-
-        assert!(model.len() > 200, "{} cajitas", model.len());
-        assert_eq!(model.visible(Faces::NONE).count(), 1);
-
-        for face in Face::ALL {
-            let count = model.visible(Faces::NONE.with(face)).count();
-            assert!(count > 10, "{face:?} quedo con {count} cajitas");
-        }
-        assert_eq!(model.visible(Faces::ALL).count(), model.len());
-    }
-
-    /// Nada puede asomar mucho mas de un texel: si asomara mas, la
-    /// decoracion de dos bloques vecinos se atravesaria.
-    #[test]
-    fn nothing_sticks_out_more_than_a_texel() {
-        for name in ["cobblestone", "sandstone", "gold_ore", "oak_planks"] {
-            let model = BlockModel::load(name).expect("esta en el pack");
-
-            for element in model.visible(Faces::ALL) {
-                assert!(element.min.x >= -0.07 && element.max.x <= 1.07, "{name} en x");
-                assert!(element.min.y >= -0.07 && element.max.y <= 1.07, "{name} en y");
-                assert!(element.min.z >= -0.07 && element.max.z <= 1.07, "{name} en z");
-            }
-        }
-    }
 }

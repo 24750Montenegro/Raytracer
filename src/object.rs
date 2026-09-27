@@ -18,10 +18,6 @@ pub enum Object {
 }
 
 impl Object {
-    pub fn cube(center: Vector3, size: f32, material: Material) -> Self {
-        Object::Cube(Cube::new(center, size, material))
-    }
-
     /// Una de las cajitas de un modelo 3D, en coordenadas locales del bloque.
     pub fn part(
         block_min: Vector3,

@@ -130,19 +130,8 @@ impl Material {
         Material::new(diffuse, Albedo::new(DEFAULT_ALBEDO, 0.0, 0.0, 0.0), 1.0)
     }
 
-    /// Material tipo plastico: mayormente difuso pero con un brillo chico
-    /// que delata la forma del cuerpo.
-    pub fn plastic(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.78, 0.22, 0.0, 0.0), 48.0)
-    }
-
-    /// Metal pulido: poco color propio y mucha imagen del entorno.
-    pub fn mirror(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.12, 0.3, 0.55, 0.0), 256.0)
-    }
-
-    /// Un metal de verdad: como el espejo, pero tiñendo con su color tanto
-    /// el brillo como la imagen que devuelve.
+    /// Metal pulido: poco color propio, mucha imagen del entorno, y esa
+    /// imagen y su brillo tenidos con su propio color.
     pub fn metal(diffuse: Color) -> Self {
         Material {
             metallic: true,
