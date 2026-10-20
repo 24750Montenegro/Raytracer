@@ -67,11 +67,15 @@ impl Rgb {
         (self * (compress(peak) / peak)).to_color()
     }
 
-    /// Brillo percibido. Los tres canales no pesan igual: el ojo ve mucho
-    /// mas el verde que el azul, asi que un azul y un verde del mismo valor
-    /// no se leen igual de claros.
-    pub fn luma(self) -> f32 {
-        self.r * 0.2126 + self.g * 0.7152 + self.b * 0.0722
+    /// El rasterizador guarda los colores como Vector3 (x = rojo, y = verde,
+    /// z = azul, de 0 a 1). Estas dos conversiones son el puente con el
+    /// sombreado, que trabaja con Rgb.
+    pub fn from_vector(color: Vector3) -> Self {
+        Rgb::new(color.x, color.y, color.z)
+    }
+
+    pub fn to_vector(self) -> Vector3 {
+        Vector3::new(self.r, self.g, self.b)
     }
 }
 

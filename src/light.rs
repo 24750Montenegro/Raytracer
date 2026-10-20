@@ -4,6 +4,7 @@ use raylib::prelude::*;
 
 use crate::color::Rgb;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Light {
     pub position: Vector3,
     /// Color de la luz; multiplica al color del material canal por canal.
@@ -12,12 +13,11 @@ pub struct Light {
     pub intensity: f32,
     /// Hasta donde llega. Infinito para las que hacen de sol: esas estan tan
     /// lejos que iluminan la escena entera parejo, y una caida cuadratica
-    /// sobre ellas dejaria los bordes del mapa casi negros.
+    /// sobre ellas dejaria los bordes de la escena casi negros.
     ///
-    /// Las lamparas de la escena si tienen alcance. Una lampara marina no
-    /// ilumina la isla de enfrente, y ademas es lo que hace que salgan
-    /// baratas: un punto que le queda lejos se descarta con una resta, sin
-    /// tirar el rayo de sombra.
+    /// Las lamparas si tienen alcance: iluminan solo lo que tienen cerca, y
+    /// ademas es lo que hace que salgan baratas, porque un punto que les
+    /// queda lejos se descarta con una resta, sin hacer la prueba de sombra.
     pub range: f32,
 }
 

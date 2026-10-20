@@ -1,3 +1,5 @@
+// framebuffer.rs
+// La imagen en RAM y como se sube a la ventana.
 use raylib::prelude::*;
 
 pub struct Framebuffer {
@@ -26,11 +28,6 @@ impl Framebuffer {
         self.background_color = color;
     }
 
-    /// Acceso directo al buffer para que el render escriba en paralelo.
-    pub fn pixels_mut(&mut self) -> &mut [u8] {
-        &mut self.pixels
-    }
-
     /// Manda el buffer a la ventana actualizando la textura existente.
     pub fn swap_buffers(&mut self, window: &mut RaylibHandle, raylib_thread: &RaylibThread) {
         if self.texture.is_none() {
@@ -57,6 +54,7 @@ impl Framebuffer {
 
     /// Guarda el cuadro como PNG. Es para sacar capturas sin depender de que
     /// alguien tenga la ventana abierta en el momento justo.
+    #[allow(dead_code)]
     pub fn save(&self, path: &str) -> Result<(), String> {
         let mut image =
             Image::gen_image_color(self.width as i32, self.height as i32, Color::BLACK);
