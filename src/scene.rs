@@ -45,15 +45,17 @@ impl Scene {
     }
 
     pub fn from_seed(seed: u64) -> Self {
-        let models = terrain::block_models();
+        /* let models = terrain::block_models();
         let terrain = Terrain::generate(seed);
-        let mut objects = terrain.blocks(&models);
+        let mut objects = terrain.blocks(&models); */  // TERRENO
+        let mut objects: Vec<Object> = Vec::new(); 
+
         // la escena no cambia nunca, asi que el BVH se arma una sola vez
         let bvh = Bvh::build(&mut objects);
         let (center, radius) = bounding_sphere(&objects);
 
         let mut lights = default_lights(center, radius);
-        lights.extend(lamp_lights(&terrain.lamps()));
+        // lights.extend(lamp_lights(&terrain.lamps()));
 
         Scene {
             objects,
