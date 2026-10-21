@@ -42,11 +42,6 @@ const MOVE_SPEED: f32 = 300.0;
 const ROTATE_SPEED: f32 = 1.5;
 const SCALE_SPEED: f32 = 1.8;
 
-/// color de los vertices y cuantos pixeles se abren alrededor de cada uno
-const VERTEX_COLOR: Vector3 = Vector3::new(1.0, 0.0, 0.0);
-const VERTEX_SPREAD: i32 = 1;
-
-
 pub struct Uniforms {
     pub model_matrix: Matrix,
     /// si el vertex shader calcula el color con las luces. En el contorno
@@ -98,17 +93,6 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
         let color = fragment_shader(&fragment);
         framebuffer.point(x, y, color);
     }
-
-    // vertices encima de las aristas, ya en coordenadas de pantalla
-    /* for vertex in &transformed_vertices {
-        let x = vertex.transformed_position.x as i32;
-        let y = vertex.transformed_position.y as i32;
-        for dy in -VERTEX_SPREAD..=VERTEX_SPREAD {
-            for dx in -VERTEX_SPREAD..=VERTEX_SPREAD {
-                framebuffer.point(x + dx, y + dy, VERTEX_COLOR);
-            }
-        }
-    } */
 }
 
 /// Mueve el modelo para que su centro quede en el origen y devuelve su
