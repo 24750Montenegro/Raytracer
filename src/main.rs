@@ -3,6 +3,7 @@ use raylib::prelude::*;
 use std::f32::consts::PI;
 use std::time::Instant;
 
+mod benchmark;
 mod fragment;
 mod framebuffer;
 mod line;
@@ -159,6 +160,13 @@ fn main() {
     let window_width = 800;
     let window_height = 600;
 
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    if args.iter().any(|arg| arg == "--compare-triangles") {
+        benchmark::compare_algorithms();
+        return;
+    }
+
     let obj = match Obj::load(MODEL_PATH) {
         Ok(obj) => obj,
         Err(problem) => {
@@ -189,6 +197,11 @@ fn main() {
         ambient: Rgb::new(0.24, 0.27, 0.33),
         material: Material::polished(Color::new(196, 202, 214, 255)),
     };
+
+    if args.iter().any(|arg| arg == "--benchmark-triangles") {
+        benchmark::run(&vertex_array, &uniforms);
+        return;
+    }
 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)

@@ -17,3 +17,9 @@ opt-level = 3
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+# release con simbolos de depuracion, para que el perfilador muestre los
+# nombres de las funciones (cargo flamegraph --profile profiling)
+[profile.profiling]
+inherits = "release"
+debug = true
