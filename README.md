@@ -58,11 +58,14 @@ z-buffer decide qué cara queda delante.
 ```sh
 cargo run --release -- --compare-triangles
 cargo run --release -- --benchmark-triangles
+cargo run --release -- --profile-stages
 ```
 
 **Comparación de posiciones.** `--compare-triangles` corre los casos de
 prueba con los dos rellenos, compara los conjuntos de píxeles y repite con
-los vértices en orden inverso:
+los vértices en orden inverso. Después compara 20 000 triángulos al azar por
+cada tipo de coordenada (enteras, de medio píxel y reales) y la lista
+completa de posiciones de la nave, a su tamaño normal y acercada 6 veces:
 
 ```text
 caso                      baricentr.      lineas  distintas  orden inverso
@@ -73,11 +76,21 @@ borde vertical                 16000       16000          0          igual
 parcialmente fuera             40645       40645          0          igual
 colineales                         0           0          0          igual
 bordes sobre centros              45          45          0          igual
+diagonal sobre centros            22          22          0          igual
 vertices fraccionarios          2199        2199          0          igual
 
 cuadrado partido en dos triangulos (deberia dar 10000 y 0):
   baricentrico   pixeles:  10000   repetidos: 0
   por lineas     pixeles:  10000   repetidos: 0
+
+20000 triangulos al azar por tipo de coordenada:
+  enteras      triangulos con diferencias:    0   posiciones distintas:    0
+  medio pixel  triangulos con diferencias:    0   posiciones distintas:    0
+  reales       triangulos con diferencias:   13   posiciones distintas:   13
+
+nave completa:
+  1x   baricentrico    184166   por lineas    184166   posiciones distintas: 0
+  6x   baricentrico   6630776   por lineas   6630776   posiciones distintas: 0
 ```
 
 **Tiempo de rasterización.** `--benchmark-triangles` hace el vertex shader y
@@ -86,26 +99,31 @@ el ensamblaje una sola vez y mide solo la rasterización de la nave completa
 
 | Modo | Fragmentos | Mediana por pasada |
 |---|---:|---:|
-| contorno | 2 136 808 | 143,18 ms |
-| relleno baricéntrico | 184 166 | 24,29 ms |
-| relleno por líneas | 184 166 | 25,01 ms |
+| contorno | 2 136 808 | 229,91 ms |
+| relleno baricéntrico | 184 166 | 43,13 ms |
+| relleno por líneas | 184 166 | 42,18 ms |
+
+Los tiempos cambian unos milisegundos de una corrida a otra; los conteos de
+fragmentos no.
 
 ### Perfil
 
 Tiempo de cada etapa del pipeline en un cuadro completo (mediana de 7
-cuadros), con la nave a su tamaño normal y acercada 6 veces:
+cuadros), con la nave a su tamaño normal y acercada 6 veces. Lo mide
+`--profile-stages`, que dibuja con la misma función `render` de la ventana
+pero sin subir la textura ni esperar entre cuadros:
 
 | Etapa | Contorno 1× | Baricéntrico 1× | Líneas 1× | Contorno 6× | Baricéntrico 6× | Líneas 6× |
 |---|---:|---:|---:|---:|---:|---:|
-| vertex shader | 26 ms | 97 ms | 96 ms | 26 ms | 100 ms | 92 ms |
-| ensamblaje | 15 ms | 17 ms | 14 ms | 15 ms | 17 ms | 16 ms |
-| rasterización | 132 ms | 23 ms | 24 ms | 318 ms | 283 ms | 184 ms |
-| fragmentos (z-buffer + shader) | 12 ms | 2 ms | 2 ms | 32 ms | 29 ms | 30 ms |
-| **total** | **186 ms** | **139 ms** | **137 ms** | **399 ms** | **446 ms** | **329 ms** |
+| vertex shader | 43 ms | 185 ms | 188 ms | 43 ms | 169 ms | 171 ms |
+| ensamblaje | 21 ms | 23 ms | 23 ms | 22 ms | 20 ms | 20 ms |
+| rasterización | 226 ms | 44 ms | 46 ms | 550 ms | 447 ms | 311 ms |
+| fragmentos (z-buffer + shader) | 24 ms | 4 ms | 4 ms | 50 ms | 49 ms | 49 ms |
+| **total** | **311 ms** | **264 ms** | **258 ms** | **664 ms** | **686 ms** | **559 ms** |
 | fragmentos generados | 2 136 808 | 184 166 | 184 166 | 7 738 436 | 6 630 776 | 6 630 776 |
 
-El vertex shader cuesta unos 24 ms sin luces; en el relleno sube a unos
-95 ms porque ilumina los 957 mil vértices.
+El vertex shader cuesta unos 43 ms sin luces; en el relleno sube a unos
+170–190 ms porque ilumina los 957 mil vértices.
 
 #### Flamegraph
 
@@ -130,7 +148,7 @@ en que se ejecutó. Los bloques `0x7FFD...` sin nombre son el heap de Windows
 `Vec`.
 
 El benchmark rasteriza 141 veces la nave con cada modo, así que el contorno,
-que es unas 6 veces más lento, se lleva la mayor parte de las muestras:
+que es unas 5 o 6 veces más lento, se lleva la mayor parte de las muestras:
 
 | Dónde | Muestras |
 |---|---:|
@@ -186,31 +204,54 @@ excluye el inferior y derecho. Los triángulos degenerados (tres vértices
 alineados) se descartan antes de dividir entre su área, y el orden de los
 vértices no importa.
 
-**Por qué dan las mismas posiciones.** Como la regla es la misma, los casos
-de prueba dan 0 posiciones distintas, también con el orden invertido, y el
-cuadrado partido en dos cubre sus 10 000 píxeles sin hueco ni repetición. En
-la nave completa los dos generan exactamente la misma lista de posiciones
-(184 166 fragmentos a tamaño normal y 6 630 776 acercada). En la imagen final
-a tamaño normal solo 4 píxeles de color cambian apenas un tono: la
-profundidad se interpola en distinto orden (pesos baricéntricos contra
-interpolación por filas), y en un empate de profundidad entre dos triángulos
-vecinos el redondeo de `f32` puede hacer que el z-buffer elija el otro.
-Acercada, las dos imágenes son idénticas.
+**Dónde se separaban.** Los casos de la guía daban 0 posiciones distintas
+desde el principio, pero en ninguno caía un centro de píxel justo sobre un
+borde inclinado. Con triángulos al azar sí aparecieron: 228 de 20 000
+triángulos con vértices enteros y 502 de 20 000 con vértices de medio píxel
+tenían algún píxel distinto, siempre un centro exactamente sobre un borde
+inclinado. El caso `diagonal sobre centros` lo reproduce: el centro
+`(4.5, 7.5)` está sobre el borde `x + y = 12`, que es izquierdo, así que la
+regla dice que entra. El baricéntrico lo incluía, porque su función de borde
+da exactamente 0. El de líneas no: calculaba primero `t = 6.5 / 11` y
+después `x = 11 − 11·t`, y con el redondeo de `f32` el cruce quedaba en
+`4.5000005` en vez de `4.5`, a la derecha del centro.
+
+**La corrección.** `cross_at` ahora multiplica antes de dividir:
+`x = x₀ + (x₁ − x₀)·(y − y₀) / (y₁ − y₀)`. Con vértices enteros o de medio
+píxel el producto es exacto y la división devuelve justo `4.5`, así que el de
+líneas decide igual que el baricéntrico. Con esos vértices las diferencias
+bajaron a 0.
+
+**Lo que queda.** Con coordenadas reales cualesquiera, 13 de 20 000
+triángulos difieren en un píxel. Son centros a menos de 0,00001 px de un
+borde: cada algoritmo redondea una cuenta distinta (la función de borde
+contra el cruce de la fila) y quedan de lados distintos. Las GPU lo evitan
+pasando los vértices a punto fijo, con unos pocos bits de subpíxel, antes de
+rasterizar; aquí no se hizo.
+
+**En la nave.** Los dos generan exactamente la misma lista de posiciones
+(184 166 fragmentos a tamaño normal y 6 630 776 acercada), y en el cuadrado
+partido en dos los dos cubren sus 10 000 píxeles sin hueco ni repetición. En
+la imagen final a tamaño normal solo 4 píxeles cambian de color, como mucho
+13 de 255 en un canal: la profundidad se interpola en distinto orden (pesos
+baricéntricos contra interpolación por filas), y en un empate de profundidad
+entre dos triángulos vecinos el redondeo de `f32` puede hacer que el z-buffer
+elija el otro. Acercada, las dos imágenes son idénticas.
 
 **Por qué el contorno es el más lento con esta malla.** Genera 11,6 veces
-más fragmentos que el relleno y tarda 5,9 veces más. Con la nave a su tamaño
+más fragmentos que el relleno y tarda 5,3 veces más. Con la nave a su tamaño
 normal casi todos los triángulos miden menos de un píxel: una línea genera
 al menos un fragmento aunque mida menos de un píxel, mientras que un
 triángulo que no cubre ningún centro no genera ninguno. Además cada arista se
 dibuja dos veces, una por cada triángulo que la comparte. A ese tamaño los
 dos rellenos tardan casi lo mismo porque hacen casi el mismo trabajo: el
 rectángulo del baricéntrico tiene muy pocos píxeles y el de líneas recorre
-una fila o ninguna. Ahí pesa más el vertex shader con luces (97 ms) que la
-rasterización (23 ms).
+una fila o ninguna. Ahí pesa más el vertex shader con luces (185 ms) que la
+rasterización (44 ms).
 
 **Qué cambia al acercarse.** Con la nave 6 veces más grande los triángulos
-cubren muchos píxeles y el de líneas pasa a ser bastante más rápido: 184 ms
-contra 283 ms de rasterización. El baricéntrico prueba todos los píxeles del
+cubren muchos píxeles y el de líneas pasa a ser bastante más rápido: 311 ms
+contra 447 ms de rasterización. El baricéntrico prueba todos los píxeles del
 rectángulo que contiene al triángulo y descarta al menos la mitad (un
 triángulo nunca ocupa más de la mitad de ese rectángulo); el de líneas solo
 visita los píxeles de adentro.
