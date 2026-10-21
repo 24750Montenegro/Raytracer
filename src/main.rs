@@ -1,7 +1,7 @@
 
 use raylib::prelude::*;
 use std::f32::consts::PI;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 mod benchmark;
 mod fragment;
@@ -66,18 +66,31 @@ impl Transform {
     }
 }
 
-fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], mode: TriangleMode) {
+/// cuanto tardo cada etapa de un dibujo y cuantos fragmentos genero
+pub struct FrameStats {
+    /// vertex shader, ensamblaje, rasterizacion y procesamiento de fragmentos
+    pub stages: [Duration; 4],
+    pub fragments: usize,
+}
+
+fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], mode: TriangleMode) -> FrameStats {
+    let start = Instant::now();
+
     // 1. Procesamiento de vertices
     let transformed_vertices: Vec<Vertex> = vertex_array
         .iter()
         .map(|vertex| vertex_shader(vertex, uniforms))
         .collect();
+    let vertices_done = Instant::now();
 
     // 2. Ensamblaje de primitivas
     let triangles = primitive_assembly(&transformed_vertices);
+    let assembly_done = Instant::now();
 
     // 3. Rasterizacion
     let fragments = rasterize(&triangles, mode);
+    let fragment_count = fragments.len();
+    let raster_done = Instant::now();
 
     // 4. Procesamiento de fragmentos
     for fragment in fragments {
@@ -92,6 +105,16 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
 
         let color = fragment_shader(&fragment);
         framebuffer.point(x, y, color);
+    }
+
+    FrameStats {
+        stages: [
+            vertices_done - start,
+            assembly_done - vertices_done,
+            raster_done - assembly_done,
+            raster_done.elapsed(),
+        ],
+        fragments: fragment_count,
     }
 }
 
@@ -145,11 +168,7 @@ fn main() {
     let window_height = 600;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-
-    if args.iter().any(|arg| arg == "--compare-triangles") {
-        benchmark::compare_algorithms();
-        return;
-    }
+    let has_flag = |flag: &str| args.iter().any(|arg| arg == flag);
 
     let obj = match Obj::load(MODEL_PATH) {
         Ok(obj) => obj,
@@ -182,8 +201,23 @@ fn main() {
         material: Material::polished(Color::new(196, 202, 214, 255)),
     };
 
-    if args.iter().any(|arg| arg == "--benchmark-triangles") {
+    // la nave como empieza y acercada 6 veces, para comparar y medir
+    let views = [
+        ("1x", initial.matrix()),
+        ("6x", Transform { scale: initial.scale * 6.0, ..initial }.matrix()),
+    ];
+
+    if has_flag("--benchmark-triangles") {
         benchmark::run(&vertex_array, &uniforms);
+        return;
+    }
+    if has_flag("--compare-triangles") {
+        benchmark::compare_algorithms(&vertex_array, &mut uniforms, &views);
+        return;
+    }
+    if has_flag("--profile-stages") {
+        let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
+        benchmark::profile_stages(&mut framebuffer, &vertex_array, &mut uniforms, &views);
         return;
     }
 
