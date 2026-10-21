@@ -168,10 +168,16 @@ fn last_pixel(value: f32) -> i32 {
     (value - 0.5).floor() as i32
 }
 
-/// donde cruza la fila `y` el borde from -> to: su x y su profundidad
+/// donde cruza la fila `y` el borde from -> to: su x y su profundidad.
+/// La x se calcula multiplicando antes de dividir: con vertices en enteros o
+/// medios pixeles el producto es exacto, y si un centro cae justo sobre el
+/// borde la division devuelve exactamente su x. Calcular t primero redondea
+/// dos veces y puede correr el cruce al otro lado del centro
 fn cross_at(from: Vector3, to: Vector3, y: f32) -> (f32, f32) {
-    let t = (y - from.y) / (to.y - from.y);
-    (from.x + (to.x - from.x) * t, from.z + (to.z - from.z) * t)
+    let rise = to.y - from.y;
+    let x = from.x + (to.x - from.x) * (y - from.y) / rise;
+    let t = (y - from.y) / rise;
+    (x, from.z + (to.z - from.z) * t)
 }
 
 /// un solo color para toda la cara: el promedio de los tres vertices
