@@ -84,8 +84,9 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
         framebuffer.point(fragment.position.x as i32, fragment.position.y as i32, color);
     }
 
+    /// VERTICES EN ROJO
     // vertices encima de las aristas, ya en coordenadas de pantalla
-    for vertex in &transformed_vertices {
+    /* for vertex in &transformed_vertices {
         let x = vertex.transformed_position.x as i32;
         let y = vertex.transformed_position.y as i32;
         for dy in -VERTEX_SPREAD..=VERTEX_SPREAD {
@@ -93,7 +94,7 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
                 framebuffer.point(x + dx, y + dy, VERTEX_COLOR);
             }
         }
-    }
+    } */
 }
 
 /// Mueve el modelo para que su centro quede en el origen y devuelve su
