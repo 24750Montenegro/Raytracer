@@ -1,13 +1,13 @@
-// main.rs
-// Base para el rasterizador: abre la ventana y muestra el framebuffer.
-// La guia en docs/guia-rasterizador.md explica como construir el pipeline
-// (vertices -> triangulos -> fragmentos -> framebuffer) encima de esto.
+
 use raylib::prelude::*;
 
+mod fragment;
 mod framebuffer;
+mod line;
+mod triangle;
+mod vertex;
 
-// Luces y sombras que vienen del raytracer. Todavia no las usa nadie: las
-// va a llamar el fragment shader cuando se rellenen las caras.
+// Luces y sombras que vienen del raytracer.
 #[allow(dead_code)]
 mod color;
 #[allow(dead_code)]
@@ -18,6 +18,30 @@ mod material;
 mod shading;
 
 use framebuffer::Framebuffer;
+use triangle::triangle;
+use vertex::Vertex;
+
+
+pub struct Uniforms {
+    pub model_matrix: Matrix,
+}
+
+fn render (framebuffer: &mut Framebuffer, _uniforms: &Uniforms, vertex_array: &[Vertex]) {
+    for vertices in vertex_array.chunks_exact(3) {
+        let fragments = triangle(&vertices[0], &vertices[1], &vertices[2]);
+        
+        for fragment in fragments {
+            framebuffer.point(
+                fragment.position.x as i32,
+                fragment.position.y as i32,
+                fragment.color,
+            );
+        }
+    }
+}
+
+
+
 
 fn main() {
     let window_width = 800;
@@ -25,16 +49,38 @@ fn main() {
 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)
-        .title("Rasterizador")
+        .title("un trinagulo")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
     window.set_target_fps(60);
 
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
-    framebuffer.set_background_color(Color::BLACK);
+    framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
+    framebuffer.init_texture(&mut window, &raylib_thread);
+
+    let positions = [
+        Vector3::new(300.0, 200.0, 0.0),
+        Vector3::new(400.0, 400.0, 0.0),
+        Vector3::new(500.0, 200.0, 0.0),
+    ];
+
+    
+    let vertex_array: Vec<Vertex> = positions
+    .into_iter()
+    .map(|position|{
+        let mut vertex = Vertex::new_with_color(position, Vector3::new(1.0, 0.0, 0.0));
+        vertex.transformed_position = position;
+        vertex
+    }).collect();
+
+    let uniforms = Uniforms { model_matrix: Matrix::identity() };
 
     while !window.window_should_close() {
+        framebuffer.clear();
+        render(&mut framebuffer, &uniforms, &vertex_array);
         framebuffer.swap_buffers(&mut window, &raylib_thread);
     }
 }
+
+
