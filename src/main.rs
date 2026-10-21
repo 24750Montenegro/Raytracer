@@ -15,16 +15,15 @@ mod triangle;
 mod vertex;
 
 // Luces y sombras que vienen del raytracer.
-#[allow(dead_code)]
 mod color;
-#[allow(dead_code)]
 mod light;
-#[allow(dead_code)]
 mod material;
-#[allow(dead_code)]
 mod shading;
 
+use color::Rgb;
 use framebuffer::Framebuffer;
+use light::Light;
+use material::Material;
 use matrix::create_model_matrix;
 use obj::Obj;
 use primitive::primitive_assembly;
@@ -49,6 +48,12 @@ const VERTEX_SPREAD: i32 = 1;
 
 pub struct Uniforms {
     pub model_matrix: Matrix,
+    /// si el vertex shader calcula el color con las luces. En el contorno
+    /// no: las lineas quedan del color del vertice
+    pub lighting: bool,
+    pub lights: Vec<Light>,
+    pub ambient: Rgb,
+    pub material: Material,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -80,8 +85,17 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
 
     // 4. Procesamiento de fragmentos
     for fragment in fragments {
+        let x = fragment.position.x as i32;
+        let y = fragment.position.y as i32;
+
+        // relleno: solo pasa lo que queda delante de lo ya dibujado. En el
+        // contorno se ven todas las aristas, tambien las de atras
+        if mode.is_filled() && !framebuffer.depth_test(x, y, fragment.depth) {
+            continue;
+        }
+
         let color = fragment_shader(&fragment);
-        framebuffer.point(fragment.position.x as i32, fragment.position.y as i32, color);
+        framebuffer.point(x, y, color);
     }
 
     // vertices encima de las aristas, ya en coordenadas de pantalla
@@ -118,6 +132,29 @@ fn center_model(vertices: &mut [Vertex]) -> f32 {
     radius.max(f32::EPSILON)
 }
 
+/// Las tres luces del raytracer: una principal arriba a la izquierda, una de
+/// relleno a la derecha y una por detras. Estan en coordenadas de pantalla
+/// (y hacia abajo, z hacia adentro), alrededor del centro de la ventana.
+fn default_lights(center: Vector3, radius: f32) -> Vec<Light> {
+    vec![
+        Light::new(
+            center + Vector3::new(-1.2 * radius, -2.2 * radius, -1.4 * radius),
+            Rgb::new(1.0, 0.96, 0.88),
+            0.9,
+        ),
+        Light::new(
+            center + Vector3::new(1.8 * radius, -0.6 * radius, -1.1 * radius),
+            Rgb::new(0.68, 0.80, 1.0),
+            0.3,
+        ),
+        Light::new(
+            center + Vector3::new(0.7 * radius, 2.0 * radius, 0.9 * radius),
+            Rgb::new(0.74, 0.84, 1.0),
+            0.34,
+        ),
+    ]
+}
+
 fn main() {
     let window_width = 800;
     let window_height = 600;
@@ -133,13 +170,24 @@ fn main() {
     let radius = center_model(&mut vertex_array);
     println!("triangulos: {}", vertex_array.len() / 3);
 
+    let screen_center = Vector3::new(window_width as f32 / 2.0, window_height as f32 / 2.0, 0.0);
+    let fit_radius = FIT * window_width.min(window_height) as f32;
+
     // en Blender y sube y en la pantalla baja: casi -90 grados en X la deja
     // vista desde arriba, 180 en Z le pone la punta hacia arriba y el giro
     // en Y la muestra de tres cuartos
     let initial = Transform {
-        translation: Vector3::new(window_width as f32 / 2.0, window_height as f32 / 2.0, 0.0),
-        scale: FIT * window_width.min(window_height) as f32 / radius,
+        translation: screen_center,
+        scale: fit_radius / radius,
         rotation: Vector3::new(-1.1, 0.5, PI),
+    };
+
+    let mut uniforms = Uniforms {
+        model_matrix: initial.matrix(),
+        lighting: false,
+        lights: default_lights(screen_center, fit_radius),
+        ambient: Rgb::new(0.24, 0.27, 0.33),
+        material: Material::polished(Color::new(196, 202, 214, 255)),
     };
 
     let (mut window, raylib_thread) = raylib::init()
@@ -157,7 +205,6 @@ fn main() {
     let mut mode = TriangleMode::Wireframe;
     // el algoritmo de relleno que se usa al pasar a relleno con Tab
     let mut fill = TriangleMode::FilledBarycentric;
-    let mut uniforms = Uniforms { model_matrix: initial.matrix() };
     let mut transform = initial;
     // lo que tiene dibujado el framebuffer ahora mismo
     let mut drawn: Option<(Transform, TriangleMode)> = None;
@@ -211,7 +258,9 @@ fn main() {
         // con cientos de miles de triangulos un cuadro tarda mas de 100 ms:
         // se vuelve a dibujar solo si algo cambio
         if drawn != Some((transform, mode)) {
+            // los uniforms de este dibujo
             uniforms.model_matrix = transform.matrix();
+            uniforms.lighting = mode.is_filled();
 
             let start = Instant::now();
             framebuffer.clear();
