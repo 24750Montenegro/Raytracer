@@ -27,6 +27,8 @@ pub struct Uniforms {
 }
 
 fn render (framebuffer: &mut Framebuffer, _uniforms: &Uniforms, vertex_array: &[Vertex]) {
+   let edge_color = Vector3::new(1.0, 1.0, 1.0);
+   
     for vertices in vertex_array.chunks_exact(3) {
         let fragments = triangle(&vertices[0], &vertices[1], &vertices[2]);
         
@@ -34,8 +36,19 @@ fn render (framebuffer: &mut Framebuffer, _uniforms: &Uniforms, vertex_array: &[
             framebuffer.point(
                 fragment.position.x as i32,
                 fragment.position.y as i32,
-                fragment.color,
+                edge_color,
             );
+        }
+    }
+
+    /// Dibujar vertices encima
+    for vertex in vertex_array {
+        let x = vertex.transformed_position.x as i32;
+        let y = vertex.transformed_position.y as i32;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                framebuffer.point(x + dx, y + dy, vertex.color);
+            }
         }
     }
 }
