@@ -1,5 +1,3 @@
-use raylib::prelude::*;
-
 use crate::fragment::Fragment;
 use crate::line::line;
 use crate::vertex::Vertex;
