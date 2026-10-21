@@ -84,7 +84,6 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
         framebuffer.point(fragment.position.x as i32, fragment.position.y as i32, color);
     }
 
-    /// VERTICES EN ROJO
     // vertices encima de las aristas, ya en coordenadas de pantalla
     /* for vertex in &transformed_vertices {
         let x = vertex.transformed_position.x as i32;
