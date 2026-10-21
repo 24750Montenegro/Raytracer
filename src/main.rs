@@ -154,12 +154,15 @@ fn main() {
     framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
     framebuffer.init_texture(&mut window, &raylib_thread);
 
-    let mode = TriangleMode::Wireframe;
+    let mut mode = TriangleMode::Wireframe;
+    // el algoritmo de relleno que se usa al pasar a relleno con Tab
+    let mut fill = TriangleMode::FilledBarycentric;
     let mut uniforms = Uniforms { model_matrix: initial.matrix() };
     let mut transform = initial;
     // lo que tiene dibujado el framebuffer ahora mismo
-    let mut drawn: Option<Transform> = None;
+    let mut drawn: Option<(Transform, TriangleMode)> = None;
 
+    println!("Tab = contorno / relleno | F = algoritmo de relleno");
     println!("flechas = mover | W/S, A/D, Q/E = rotar en X, Y, Z | Z/X = escala");
     println!("R = volver al inicio | P = guardar captura");
 
@@ -167,6 +170,19 @@ fn main() {
         let dt = window.get_frame_time();
         let held = |key| window.is_key_down(key);
 
+        if window.is_key_pressed(KeyboardKey::KEY_TAB) {
+            mode = if mode.is_filled() { TriangleMode::Wireframe } else { fill };
+        }
+        if window.is_key_pressed(KeyboardKey::KEY_F) {
+            fill = if fill == TriangleMode::FilledBarycentric {
+                TriangleMode::FilledScanline
+            } else {
+                TriangleMode::FilledBarycentric
+            };
+            if mode.is_filled() {
+                mode = fill;
+            }
+        }
         if window.is_key_pressed(KeyboardKey::KEY_R) {
             transform = initial;
         }
@@ -194,7 +210,7 @@ fn main() {
 
         // con cientos de miles de triangulos un cuadro tarda mas de 100 ms:
         // se vuelve a dibujar solo si algo cambio
-        if drawn != Some(transform) {
+        if drawn != Some((transform, mode)) {
             uniforms.model_matrix = transform.matrix();
 
             let start = Instant::now();
@@ -206,11 +222,11 @@ fn main() {
                 &raylib_thread,
                 &format!("Rasterizador | {} | {elapsed:.0} ms", mode.name()),
             );
-            drawn = Some(transform);
+            drawn = Some((transform, mode));
         }
 
         if window.is_key_pressed(KeyboardKey::KEY_P) {
-            let path = format!("captura-{}.png", mode.name());
+            let path = format!("captura-{}.png", mode.name().replace(' ', "-"));
             match framebuffer.save(&path) {
                 Ok(()) => println!("captura guardada en {path}"),
                 Err(problem) => eprintln!("{problem}"),
