@@ -152,13 +152,13 @@ que es unas 5 o 6 veces más lento, se lleva la mayor parte de las muestras:
 
 | Dónde | Muestras |
 |---|---:|
-| `rasterize` | 98,5 % |
-| — gestión de memoria (`push`, `RawVec::grow_one`, `finish_grow`, `extend`, `dealloc`, heap de Windows) | 71,4 % |
-| — cálculo | 27,1 % |
-| `triangle` (contorno) | 58,1 % |
-| — `line` (Bresenham, sin contar memoria) | 9,4 % |
-| `triangle_barycentric` | 11,2 % |
-| `triangle_scanline` | 11,1 % |
+| `rasterize` | 98,8 % |
+| — gestión de memoria (`push`, `RawVec::grow_one`, `finish_grow`, `extend`, `dealloc`, heap de Windows) | 72,9 % |
+| — cálculo | 25,9 % |
+| `triangle` (contorno) | 59,2 % |
+| — `line` (Bresenham, sin contar memoria) | 9,3 % |
+| `triangle_barycentric` | 10,9 % |
+| `triangle_scanline` | 10,7 % |
 | `extend` en `rasterize` (copiar el `Vec` de cada triángulo al grande) | 17,8 % |
 | cargar el `.obj` | 0,9 % |
 
@@ -167,16 +167,16 @@ que es unas 5 o 6 veces más lento, se lleva la mayor parte de las muestras:
 - **El cuello de botella es la memoria, no el algoritmo.** Unas tres cuartas
   partes del tiempo de `rasterize` se van en hacer crecer, copiar y liberar
   vectores de fragmentos. Solo una cuarta parte es cálculo.
-- **El contorno es casi todo memoria (82 % de su tiempo).** Cada `line` crea
+- **El contorno es casi todo memoria (83 % de su tiempo).** Cada `line` crea
   su propio `Vec` y lo hace crecer fragmento a fragmento (`push` →
   `grow_one`). Después `triangle` copia las tres líneas a otro `Vec` con
   `extend` y las libera, y `rasterize` lo vuelve a copiar al vector grande.
-  El algoritmo de Bresenham en sí es solo el 9,4 % de las muestras.
-- **Los dos rellenos pesan prácticamente lo mismo** (11,2 % y 11,1 %),
-  igual que en el benchmark. En ellos la memoria es cerca de un 27 % y el
-  resto es cálculo: `covers`, `edge_function` y el `min`/`max` del
-  rectángulo en el baricéntrico; `first_pixel`, `cross_at` y el `sort_by` de
-  los tres vértices en el de líneas.
+  El algoritmo de Bresenham en sí es solo el 9,3 % de las muestras.
+- **Los dos rellenos pesan prácticamente lo mismo** (10,9 % y 10,7 %),
+  igual que en el benchmark. En ellos la memoria es un 27–28 % y el resto
+  es cálculo: `covers`, `edge_function` y el `min`/`max` del rectángulo en
+  el baricéntrico; `cross_at`, `first_pixel` y el `sort_by` de los tres
+  vértices en el de líneas.
 - **Copiar al vector grande cuesta más que rellenar.** El `extend` de
   `rasterize` (17,8 %) pesa más que cualquiera de los dos rellenos por
   separado.
