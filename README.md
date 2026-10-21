@@ -107,21 +107,66 @@ cuadros), con la nave a su tamaño normal y acercada 6 veces:
 El vertex shader cuesta unos 24 ms sin luces; en el relleno sube a unos
 95 ms porque ilumina los 957 mil vértices.
 
-Para ver **dónde** se va el tiempo dentro de cada etapa, el proyecto trae el
-perfil `profiling` (release con símbolos de depuración). En Windows
-`cargo flamegraph` usa ETW, así que hay que abrir la terminal como
-administrador:
+#### Flamegraph
+
+Para ver **dónde** se va el tiempo dentro de la rasterización se perfiló
+`--benchmark-triangles` con el perfil `profiling` (release con símbolos de
+depuración). En Windows `cargo flamegraph` usa ETW, así que hay que correrlo
+en una terminal como administrador:
 
 ```sh
 cargo install flamegraph
 cargo flamegraph --profile profiling -- --benchmark-triangles
 ```
 
-En `flamegraph.svg` conviene buscar `triangle_barycentric`,
-`triangle_scanline`, `line` y `rasterize`, y comparar el ancho del cálculo
-(`edge_function`, `cross_at`) con el de `push`, `extend` y la reserva de
-memoria (`RawVec`, `reserve`): cada triángulo crea su propio `Vec` de
-fragmentos y después se copia al grande.
+![Flamegraph de --benchmark-triangles](assets/perfil/flamegraph.svg)
+
+El SVG es interactivo si se abre directamente en el navegador
+([`assets/perfil/flamegraph.svg`](assets/perfil/flamegraph.svg)): se puede
+hacer zoom en un bloque y buscar funciones. El ancho de cada bloque es la
+proporción de muestras en las que esa función estaba en la pila, no el orden
+en que se ejecutó. Los bloques `0x7FFD...` sin nombre son el heap de Windows
+(`ntdll`), al que se llega desde la reserva y liberación de memoria de los
+`Vec`.
+
+El benchmark rasteriza 141 veces la nave con cada modo, así que el contorno,
+que es unas 6 veces más lento, se lleva la mayor parte de las muestras:
+
+| Dónde | Muestras |
+|---|---:|
+| `rasterize` | 98,5 % |
+| — gestión de memoria (`push`, `RawVec::grow_one`, `finish_grow`, `extend`, `dealloc`, heap de Windows) | 71,4 % |
+| — cálculo | 27,1 % |
+| `triangle` (contorno) | 58,1 % |
+| — `line` (Bresenham, sin contar memoria) | 9,4 % |
+| `triangle_barycentric` | 11,2 % |
+| `triangle_scanline` | 11,1 % |
+| `extend` en `rasterize` (copiar el `Vec` de cada triángulo al grande) | 17,8 % |
+| cargar el `.obj` | 0,9 % |
+
+**Qué muestra:**
+
+- **El cuello de botella es la memoria, no el algoritmo.** Unas tres cuartas
+  partes del tiempo de `rasterize` se van en hacer crecer, copiar y liberar
+  vectores de fragmentos. Solo una cuarta parte es cálculo.
+- **El contorno es casi todo memoria (82 % de su tiempo).** Cada `line` crea
+  su propio `Vec` y lo hace crecer fragmento a fragmento (`push` →
+  `grow_one`). Después `triangle` copia las tres líneas a otro `Vec` con
+  `extend` y las libera, y `rasterize` lo vuelve a copiar al vector grande.
+  El algoritmo de Bresenham en sí es solo el 9,4 % de las muestras.
+- **Los dos rellenos pesan prácticamente lo mismo** (11,2 % y 11,1 %),
+  igual que en el benchmark. En ellos la memoria es cerca de un 27 % y el
+  resto es cálculo: `covers`, `edge_function` y el `min`/`max` del
+  rectángulo en el baricéntrico; `first_pixel`, `cross_at` y el `sort_by` de
+  los tres vértices en el de líneas.
+- **Copiar al vector grande cuesta más que rellenar.** El `extend` de
+  `rasterize` (17,8 %) pesa más que cualquiera de los dos rellenos por
+  separado.
+
+Por eso la primera mejora de la lista de abajo (pasar un `&mut Vec<Fragment>`
+para que cada función escriba directo en el vector grande) es la que más
+ganaría: elimina los `Vec` intermedios por triángulo y por línea, y con ellos
+la mayoría de esas reservas, copias y liberaciones.
 
 ### Diferencias encontradas
 
