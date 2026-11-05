@@ -38,6 +38,9 @@ cargo run --release -- --capturas 2.0
 | **R** | volver al inicio |
 | **P** | guardar una captura del shader actual |
 
+Arriba a la izquierda se ve el nombre del cuerpo celeste y su tipo. Ese
+texto no entra en las capturas.
+
 ## Cómo está armado
 
 ```
@@ -92,12 +95,16 @@ comprime hacia el blanco, útil para que una estrella brille.
 | `fract(x)` | 0..1 que se repite |
 | `noise(p)` | ruido OpenSimplex2, 0..1 |
 | `fbm(p, octavas)` | varias octavas de ruido: más detalle |
+| `ridged(p, octavas)` | como `fbm` pero con crestas finas y nítidas: venas, relámpagos |
 | `cellular(p)` | distancia al centro de la celda (Voronoi) |
 | `cell_edge(p)` | distancia al borde entre celdas: 0 sobre el borde |
 | `cell_value(p)` | un valor al azar por celda |
 | `latitude(p)`, `longitude(p)` | -1..1 de polo a polo, 0..1 alrededor |
 | `rotate_y(p, ángulo)`, `rotate(p, eje, ángulo)` | girar el patrón |
+| `rim(f, potencia)` | 0 de frente, 1 en el borde: halos, coronas, atmósferas |
+| `bump(f.normal, p, h, fuerza, altura)` | normal con relieve a partir de un campo de altura |
 | `Material::matte()`, `polished()`, `lacquer()`, `metal()`, `lamp(emisión)` | cómo responde a la luz |
+| `Material::new(Albedo::new(difuso, especular), brillo)` | un material a medida |
 
 Con vectores: `f.p * 4.0` sube la frecuencia de un patrón, `f.p + f.time * 0.3`
 lo desplaza con el tiempo y `f.p * Vector3::new(1.0, 8.0, 1.0)` lo estira.
@@ -138,7 +145,8 @@ tocar los tres cuerpos.
 1. Crear `src/shaders/mi_shader.rs` con `use super::kit::*;` y
    `pub fn shade(f: &Frag) -> Vector3`.
 2. En `src/shaders/mod.rs`, agregar `mod mi_shader;` y una línea en
-   `SHADERS`. Tab lo recorre solo.
+   `SHADERS`: `name` es el tipo (y el nombre de la captura) y `body` el
+   nombre que se muestra en pantalla. Tab lo recorre solo.
 
 ### Dónde engancha cada efecto
 
@@ -155,53 +163,136 @@ tocar los tres cuerpos.
 
 ## Cuerpos celestes
 
-### Estrella: _nombre_
+### Estrella: Lunan't
 
 ![Estrella](assets/capturas/estrella.png)
 
-_Descripción del diseño._
+"Luna" + "n't": no es una luna, porque brilla sola. Es una estrella morada
+con venas de plasma lavanda que fluyen rápido sobre un fondo gris oscuro,
+y late.
 
-**Patrones y cómo se combinan.** _Pendiente._
+**Patrones y cómo se combinan.**
+
+1. `ridged(p, 5)`: un `fbm` de crestas. Cada octava es `1 - |ruido|`, así
+   que donde el ruido cruza por cero queda una cresta, y al elevarla al
+   cuadrado se angosta. Eso da venas con borde nítido en vez de las manchas
+   difuminadas de un `fbm` común. p gira (`SPIN`) y se desplaza con el
+   tiempo (`FLOW_SPEED`), así que las venas fluyen.
+2. `smoothstep(VEINS)` convierte las crestas en calor de 0 a 1, y un `ramp`
+   lo lleva de gris oscuro a morado y a lavanda. Los morados están en
+   escala 0–255, muy por encima de 1: la pantalla los comprime sin cambiar
+   el tono, así que apenas hay calor el color salta a morado saturado y el
+   gris solo queda donde el calor es 0.
+3. El borde de la esfera se oscurece un poco (`0.65 + 0.35 · √(normal · vista)`).
+4. Pulso: `1 + PULSE · sin(1.2 · t)`. Las venas lo reciben completo; el
+   fondo solo recibe la mitad que oscurece, así que en el pico no se aclara.
+5. No usa la luz del sol: todo es emisión.
 
 **Parámetros** (`src/shaders/star.rs`):
 
 | Parámetro | Qué cambia |
 |---|---|
-| | |
+| `SPIN` | velocidad de giro de la superficie (rad/s) |
+| `FLOW_SPEED` | qué tan rápido fluyen las venas |
+| `SCALE` | tamaño del plasma: más alto, venas más chicas y juntas |
+| `VEINS` | dónde empieza y termina el paso a morado: más cerrado, más fondo gris |
+| `BRIGHTNESS` | brillo total |
+| `PULSE` | cuánto late |
+| `DARK`, `PURPLE`, `PURPLE_HOT` | colores del fondo, del plasma y de las venas |
 
-### Planeta rocoso: _nombre_
+### Planeta rocoso: Bocchi
 
 ![Planeta rocoso](assets/capturas/planeta-rocoso.png)
 
-_Descripción del diseño._
+Un planeta *rock* rosado: casi todo el suelo es rosa, con algunos lagos
+celestes y picos y casquetes polares de plata. Las nubes lo tapan a ratos y de noche
+se le encienden grietas celestes.
 
-**Patrones y cómo se combinan.** _Pendiente._
+**Patrones y cómo se combinan.**
+
+1. `terrain`: `fbm` de 4 octavas, la altura del suelo. Debajo de
+   `SEA_LEVEL` hay agua (celeste, más oscura cuanto más honda, con espuma en
+   la costa); arriba, roca que va de rosa claro a malva según la altura.
+2. Plata: sobre `PEAK_LEVEL` y cerca de los polos (`ICE_LATITUDE`,
+   desplazada por la altura para que el borde del casquete no sea recto).
+3. Relieve: `bump` inclina la normal según la pendiente de `terrain`. La
+   altura se corta en `SEA_LEVEL`, así que el mar queda plano.
+4. Cada región responde distinto a la luz: agua con brillo de Phong
+   cerrado, roca mate y plata metálica (el brillo sale plateado).
+5. Nubes: otro `fbm`, estirado en vertical para que salgan alargadas y
+   girando a `CLOUD_SPEED`, distinto del giro del suelo (`SPIN`). Su sombra
+   es la misma máscara evaluada en el punto corrido hacia el sol.
+6. Noche: `cell_edge` dibuja grietas que solo brillan donde `f.light` es
+   casi 0.
+7. Un halo rosado en el borde con `rim`, más fuerte del lado del día.
 
 **Parámetros** (`src/shaders/rocky.rs`):
 
 | Parámetro | Qué cambia |
 |---|---|
-| | |
+| `SPIN` | velocidad de giro del suelo |
+| `TERRAIN_SCALE` | tamaño de los continentes |
+| `SEA_LEVEL` | cuánto mar hay |
+| `PEAK_LEVEL` | desde qué altura los picos son de plata |
+| `ICE_LATITUDE` | hasta dónde bajan los casquetes |
+| `BUMP` | fuerza del relieve |
+| `CLOUD_SCALE`, `CLOUD_COVER` | tamaño de las nubes y cuánto cubren |
+| `CLOUD_SPEED` | velocidad de las nubes |
+| `CLOUD_HEIGHT` | qué tan corrida queda la sombra de las nubes |
+| `CRACK_SCALE`, `NIGHT_GLOW` | tamaño e intensidad de las grietas de noche |
+| `CELESTE`, `SEA_DEEP`, `PINK`, `HOT_PINK`, `SILVER`, ... | paleta |
 
-### Gigante gaseoso: _nombre_
+### Gigante gaseoso: JupyterNotebook
 
 ![Gigante gaseoso](assets/capturas/gigante-gaseoso.png)
 
-_Descripción del diseño._
+Un Júpiter cibernético pintado con la paleta Dracula, un tema de editor de
+código: franjas anchas de neón (verde, cyan, rosa y morado) separadas por
+líneas finas casi negras, que son los fondos del tema. Las franjas bajan,
+los colores van cambiando con el tiempo y unas vetas oscuras de nubes le dan
+la textura de gas.
 
-**Patrones y cómo se combinan.** _Pendiente._
+**Patrones y cómo se combinan.**
+
+1. `franjas = wave(y · BANDS + t · FALL_SPEED + remolino)³`: un seno de la
+   altura más el tiempo. Como el tiempo suma, cada valor queda cada vez más
+   abajo: las franjas bajan. Al elevarlo al cubo, solo se acerca a 1 en una
+   parte angosta de cada ciclo.
+2. Remolino: un `fbm` estirado en vertical que se suma dentro del seno y
+   ondula los bordes, para que parezcan gas.
+3. Color: `mix(neón, oscuro, franjas)`. Como `franjas` casi siempre está
+   cerca de 0, domina el neón y lo oscuro queda en líneas finas. Cada color
+   sale de `cycle`, que recorre su lista en círculo con un índice que
+   depende de la altura (cada franja tiene su color) y del tiempo
+   (`COLOR_SPEED`). El neón y lo oscuro avanzan a ritmos distintos, así que
+   las combinaciones no se repiten igual.
+4. Vetas: otro `fbm` más fino multiplica el color entre 0.4 y 1.2, y deja
+   nubes oscuras alargadas sobre el neón.
+5. `Material::lamp(GLOW)`: además de la luz del sol, la superficie emite su
+   propio color, así que el neón brilla también del lado de noche. Las
+   líneas oscuras casi no emiten.
 
 **Parámetros** (`src/shaders/gas_giant.rs`):
 
 | Parámetro | Qué cambia |
 |---|---|
-| | |
+| `BANDS` | cuántas franjas hay |
+| `FALL_SPEED` | qué tan rápido bajan las franjas |
+| `TURBULENCE` | qué tan ondulados son los bordes |
+| `COLOR_SPEED` | qué tan rápido cambian los colores |
+| `GLOW` | cuánto brilla solo: más alto, neón más vivo, pero las líneas oscuras se aclaran |
+| `LIGHT`, `DARK` | colores del neón y de las líneas oscuras (paleta Dracula) |
 
 ## Efectos adicionales
 
 | Efecto | Cuerpo | Archivo y función | Evidencia | Cómo funciona | Parámetro y qué cambia |
 |---|---|---|---|---|---|
-| | | | | | |
+| Material animado | los tres | `star.rs`, `rocky.rs`, `gas_giant.rs` → `shade` | _video pendiente_ | `f.time` hace fluir el plasma y latir la estrella, gira el suelo y las nubes, baja las franjas y les cambia el color | `FLOW_SPEED`, `PULSE`, `SPIN`, `FALL_SPEED`, `COLOR_SPEED` |
+| Día y noche | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | grietas emisivas pesadas por `1 - smoothstep(0, 0.12, f.light)` | `NIGHT_GLOW`: intensidad; `CRACK_SCALE`: tamaño |
+| Respuesta distinta a la luz por región | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | agua con Phong cerrado, roca mate, plata metálica | `PEAK_LEVEL`, `SEA_LEVEL`: dónde empieza cada región |
+| Nubes | Bocchi | `rocky.rs` → `clouds` | _video pendiente_ | `fbm` estirado que gira más rápido que el suelo | `CLOUD_SPEED`, `CLOUD_COVER` |
+| Sombras de nubes | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | la máscara de nubes evaluada en `p + to_sun · CLOUD_HEIGHT` oscurece el suelo | `CLOUD_HEIGHT`: cuánto se corre la sombra |
+| Bump mapping | Bocchi | `kit.rs` → `bump`, `rocky.rs` → `terrain` | _video pendiente_ | diferencias finitas de la altura en dos tangentes inclinan la normal | `BUMP`: fuerza del relieve |
 
 Los videos se pueden grabar con **Win + Alt + R** (Xbox Game Bar) con la
 ventana enfocada.

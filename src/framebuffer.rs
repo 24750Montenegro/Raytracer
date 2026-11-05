@@ -105,7 +105,13 @@ impl Framebuffer {
     }
 
     /// Manda el buffer a la ventana actualizando la textura existente.
-    pub fn swap_buffers(&mut self, window: &mut RaylibHandle, raylib_thread: &RaylibThread) {
+    /// `overlay` dibuja encima (texto); no queda en el buffer ni en las capturas.
+    pub fn swap_buffers(
+        &mut self,
+        window: &mut RaylibHandle,
+        raylib_thread: &RaylibThread,
+        overlay: impl FnOnce(&mut RaylibDrawHandle),
+    ) {
         if self.texture.is_none() {
             self.init_texture(window, raylib_thread);
         }
@@ -118,6 +124,7 @@ impl Framebuffer {
         let mut renderer = window.begin_drawing(raylib_thread);
         renderer.clear_background(Color::BLACK);
         renderer.draw_texture(texture, 0, 0, Color::WHITE);
+        overlay(&mut renderer);
     }
 
     /// Guarda el cuadro como PNG.

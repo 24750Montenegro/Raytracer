@@ -16,15 +16,17 @@ mod star;
 
 pub struct Shader {
     pub name: &'static str,
+    /// Nombre del cuerpo celeste, el que se muestra en pantalla.
+    pub body: &'static str,
     pub shade: fn(&Frag) -> Vector3,
 }
 
 /// Lo que recorre Tab, en orden. Un shader nuevo se agrega aca.
 pub const SHADERS: &[Shader] = &[
-    Shader { name: "estrella", shade: star::shade },
-    Shader { name: "planeta rocoso", shade: rocky::shade },
-    Shader { name: "gigante gaseoso", shade: gas_giant::shade },
-    Shader { name: "pruebas", shade: sandbox::shade },
+    Shader { name: "estrella", body: "Lunan't", shade: star::shade },
+    Shader { name: "planeta rocoso", body: "Bocchi", shade: rocky::shade },
+    Shader { name: "gigante gaseoso", body: "JupyterNotebook", shade: gas_giant::shade },
+    Shader { name: "pruebas", body: "Sandbox", shade: sandbox::shade },
 ];
 
 /// Todo lo que un shader sabe del punto que esta pintando.

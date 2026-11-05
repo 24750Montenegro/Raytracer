@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use fastnoise_lite::{CellularReturnType, FastNoiseLite, NoiseType};
 
 pub use super::Frag;
-pub use crate::material::Material;
+pub use crate::material::{Albedo, Material};
 pub use raylib::math::Vector3;
 
 // ---------- color: Vector3 con x = rojo, y = verde, z = azul, de 0 a 1 ----------
@@ -94,6 +94,20 @@ pub fn fbm(p: Vector3, octaves: u32) -> f32 {
     0.5 + 0.5 * sum / total.max(f32::EPSILON)
 }
 
+/// Como `fbm`, pero cada octava es `1 - |ruido|`: crestas finas y nitidas
+/// donde el ruido cruza por cero, como venas o relampagos.
+pub fn ridged(p: Vector3, octaves: u32) -> f32 {
+    let (mut sum, mut amplitude, mut frequency, mut total) = (0.0, 1.0, 1.0, 0.0);
+    for _ in 0..octaves {
+        let ridge = 1.0 - SIMPLEX.get_noise_3d(p.x * frequency, p.y * frequency, p.z * frequency).abs();
+        sum += ridge * ridge * amplitude;
+        total += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    sum / total.max(f32::EPSILON)
+}
+
 /// Distancia al punto de celda mas cercano: 0 en el centro de cada celda.
 pub fn cellular(p: Vector3) -> f32 {
     (CELL_DISTANCE.get_noise_3d(p.x, p.y, p.z) + 1.0).clamp(0.0, 1.0)
@@ -132,4 +146,25 @@ pub fn rotate(p: Vector3, axis: Vector3, angle: f32) -> Vector3 {
     let k = axis.normalized();
     let (sin, cos) = angle.sin_cos();
     p * cos + k.cross(p) * sin + k * (k.dot(p) * (1.0 - cos))
+}
+
+// ---------- luz ----------
+
+/// 0 mirando de frente, 1 en el borde de la esfera. `power` alto lo pega al
+/// borde: atmosferas, coronas.
+pub fn rim(f: &Frag, power: f32) -> f32 {
+    (1.0 - f.normal.dot(f.to_viewer).max(0.0)).powf(power)
+}
+
+/// Normal con relieve: se inclina hacia donde baja `height`. `h` es
+/// `height(p)`, ya calculada por el shader. p y la normal comparten marco
+/// porque la esfera no rota.
+pub fn bump(normal: Vector3, p: Vector3, h: f32, strength: f32, height: impl Fn(Vector3) -> f32) -> Vector3 {
+    const STEP: f32 = 0.005;
+    let helper = if normal.y.abs() < 0.99 { Vector3::new(0.0, 1.0, 0.0) } else { Vector3::new(1.0, 0.0, 0.0) };
+    let east = helper.cross(normal).normalized();
+    let north = normal.cross(east);
+    let slope_east = (height(p + east * STEP) - h) / STEP;
+    let slope_north = (height(p + north * STEP) - h) / STEP;
+    (normal - (east * slope_east + north * slope_north) * strength).normalized()
 }

@@ -286,9 +286,10 @@ fn main() {
             window.set_window_title(
                 &raylib_thread,
                 &format!(
-                    "Shaders | {}/{} {} | {elapsed:.0} ms | t = {time:.1} s{}",
+                    "Shaders | {}/{} {} ({}) | {elapsed:.0} ms | t = {time:.1} s{}",
                     shader + 1,
                     SHADERS.len(),
+                    SHADERS[shader].body,
                     SHADERS[shader].name,
                     if paused { " (pausa)" } else { "" },
                 ),
@@ -304,6 +305,10 @@ fn main() {
             }
         }
 
-        framebuffer.swap_buffers(&mut window, &raylib_thread);
+        let current = &SHADERS[shader];
+        framebuffer.swap_buffers(&mut window, &raylib_thread, |overlay| {
+            overlay.draw_text(current.body, 20, 18, 32, Color::WHITE);
+            overlay.draw_text(current.name, 22, 56, 18, Color::GRAY);
+        });
     }
 }
