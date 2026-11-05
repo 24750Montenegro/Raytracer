@@ -1,20 +1,13 @@
-# Rasterizador de modelos .obj
+# Laboratorio: planetas y estrellas con shaders
 
-Un rasterizador por software, escrito en Rust, que carga un modelo `.obj`
-(`assets/models/nave-juanmontenegro-24750.obj`) y lo dibuja pasando por un
-pipeline propio:
+Rasterizador por software escrito en Rust: todo se dibuja en CPU. La misma
+esfera (`assets/models/sphere.obj`, 192 triángulos) se pinta con distintos
+fragment shaders, y cada shader es un cuerpo celeste. No se usan texturas ni
+se modifican los vértices: todo el aspecto sale de funciones matemáticas y
+ruido.
 
-```
-vértices → vertex shader → ensamblaje de triángulos → rasterización → fragment shader → framebuffer
-```
-
-La única dependencia es `raylib`, que se usa para abrir la ventana, subir el
-cuadro a la pantalla y prestar sus tipos de vector y matriz.
-
-> El trazador de rayos anterior (las islas de bloques) sigue en la rama
-> `main`. De él se conservó la lógica de luces y sombras (`light.rs`,
-> `shading.rs`, `material.rs`, `color.rs`), que aquí sombrea las caras
-> rellenas.
+> El laboratorio anterior (la nave, los rellenos y sus mediciones) está en la
+> rama `feat/obj-rendering`.
 
 ## Cómo ejecutarlo
 
@@ -22,242 +15,193 @@ cuadro a la pantalla y prestar sus tipos de vector y matriz.
 cargo run --release
 ```
 
+La primera compilación construye raylib desde C, así que necesita CMake y un
+compilador de C (en Windows, las Build Tools de Visual Studio).
+
+Para guardar una captura de cada shader en `assets/capturas/` sin abrir la
+ventana (el número es el instante, en segundos):
+
+```sh
+cargo run --release -- --capturas 2.0
+```
+
 ## Controles
 
 | Tecla | Qué hace |
 |---|---|
-| **Tab** | cambia entre contorno y relleno |
-| **F** | cambia el algoritmo de relleno (baricéntrico / líneas horizontales) |
-| **Flechas** | trasladar |
-| **W/S**, **A/D**, **Q/E** | rotar en X, Y y Z |
-| **Z** / **X** | achicar / agrandar |
-| **R** | volver a la posición inicial |
-| **P** | guardar una captura del modo actual |
+| **Tab** / **Shift+Tab** | siguiente / anterior shader |
+| **1**–**4** | elegir un shader directamente |
+| **Flechas** | orbitar la cámara alrededor de la esfera |
+| **Z** / **X** | alejar / acercar |
+| **Q** / **E** | mover el sol alrededor de la esfera |
+| **Espacio** | pausar el tiempo |
+| **R** | volver al inicio |
+| **P** | guardar una captura del shader actual |
 
-## Laboratorio: rellenar triángulos
+## Cómo está armado
 
-### Capturas
+```
+vértices → vertex shader → ensamblaje → rasterización → z-buffer → fragment shader → framebuffer
+```
 
-| Contorno | Contorno (acercado) |
+- **Vertex shader** (`src/shaders/mod.rs`): la matriz de modelo lleva la
+  esfera a radio 1 en el origen, la de vista la mira desde la cámara orbital
+  y la de viewport la pasa a píxeles (proyección ortográfica).
+- **Rasterización** (`src/triangle.rs`): relleno baricéntrico que interpola
+  la profundidad, la posición en el modelo y la posición en el mundo.
+- **Z-buffer**: queda el fragmento más cercano de cada píxel, y el fragment
+  shader corre una sola vez por píxel visible, repartido entre todos los
+  núcleos (`Framebuffer::shade`).
+- **Fragment shader**: arma un `Frag` con todo lo que se sabe del punto y
+  llama al shader elegido con Tab.
+
+La esfera no gira: lo que se mueve es la cámara. El sol queda fijo respecto
+a la esfera, así que al orbitar se ven el lado de día y el de noche. La
+normal se calcula desde la posición (en una esfera es la dirección desde el
+centro), por eso la luz se ve suave aunque la malla tenga pocos triángulos.
+
+## Cómo escribir un shader
+
+Un shader es una función `fn shade(f: &Frag) -> Rgb` en `src/shaders/`.
+Recibe el punto que se está pintando y devuelve su color (0 a 1 por canal;
+lo que pase de 1 se comprime hacia el blanco, útil para que una estrella
+brille).
+
+### Lo que trae `Frag`
+
+| | Qué es |
 |---|---|
-| ![Contorno](assets/capturas/wireframe.png) | ![Contorno acercado](assets/capturas/wireframe-cerca.png) |
-| **Relleno baricéntrico** | **Relleno por líneas horizontales** |
-| ![Relleno baricéntrico](assets/capturas/relleno-baricentrico.png) | ![Relleno por líneas](assets/capturas/relleno-por-lineas.png) |
+| `f.p` | punto de la esfera de radio 1, en coordenadas del modelo. Es la entrada de todos los patrones |
+| `f.normal` | normal en el mundo |
+| `f.to_sun` | dirección hacia el sol |
+| `f.to_viewer` | dirección hacia la cámara |
+| `f.light` | intensidad del sol en ese punto: 0 de noche, 1 de frente |
+| `f.time` | segundos desde que arrancó (Espacio lo pausa) |
+| `f.lit(color)` | el color con luz difusa básica (ambiente + sol) |
+| `f.shade(color, &material, normal)` | Lambert + Phong + emisión con un `Material` y la normal que se quiera |
 
-Con la nave a su tamaño normal el contorno se ve como una mancha blanca: son
-319 mil triángulos en unos 150 mil píxeles, así que las aristas lo tapan
-todo. Al acercarse (tecla **X**) aparece la malla.
+### Herramientas (`src/shaders/kit.rs`)
 
-En el relleno cada cara toma un solo color (*flat shading*): el vertex shader
-ilumina cada vértice con `shading::shade` (Lambert + Phong con las tres luces
-del raytracer) y el triángulo usa el promedio de sus tres vértices. Un
-z-buffer decide qué cara queda delante.
+| Función | Qué hace |
+|---|---|
+| `rgb(r, g, b)`, `hex(0xff8800)`, `gray(v)` | colores |
+| `mix(a, b, t)` | `a` cuando t = 0, `b` cuando t = 1 |
+| `ramp(&[(0.0, a), (0.5, b), (1.0, c)], t)` | degradado por paradas |
+| `smoothstep(e0, e1, x)`, `step(borde, x)` | convertir un valor en máscara, suave o dura |
+| `wave(x)` | seno pasado a 0..1 |
+| `fract(x)` | 0..1 que se repite |
+| `noise(p)` | ruido OpenSimplex2, 0..1 |
+| `fbm(p, octavas)` | varias octavas de ruido: más detalle |
+| `cellular(p)` | distancia al centro de la celda (Voronoi) |
+| `cell_edge(p)` | distancia al borde entre celdas: 0 sobre el borde |
+| `cell_value(p)` | un valor al azar por celda |
+| `latitude(p)`, `longitude(p)` | -1..1 de polo a polo, 0..1 alrededor |
+| `rotate_y(p, ángulo)`, `rotate(p, eje, ángulo)` | girar el patrón |
+| `Material::matte()`, `polished()`, `lacquer()`, `metal()`, `lamp(emisión)` | cómo responde a la luz |
 
-### Mediciones
+Con vectores: `f.p * 4.0` sube la frecuencia de un patrón, `f.p + f.time * 0.3`
+lo desplaza con el tiempo y `f.p * Vector3::new(1.0, 8.0, 1.0)` lo estira.
 
-```sh
-cargo run --release -- --compare-triangles
-cargo run --release -- --benchmark-triangles
-cargo run --release -- --profile-stages
+### Capas
+
+Una capa es una máscara de 0 a 1, un color y una forma de combinarlos:
+
+```rust
+use super::kit::*;
+
+pub fn shade(f: &Frag) -> Rgb {
+    let mut color = hex(0x1b2440);
+
+    // encima: mix
+    let franjas = wave(f.p.y * 12.0 + f.time);
+    color = mix(color, hex(0x5d7bd5), franjas);
+
+    // sumar: brillos, emisión
+    let calor = fbm(f.p * 4.0, 4);
+    color = color + hex(0xffb347) * calor * 0.3;
+
+    // multiplicar: oscurecer, sombras
+    color = color * (0.6 + 0.4 * cellular(f.p * 6.0));
+
+    // la luz al final (una estrella puede saltársela)
+    f.lit(color)
+}
 ```
 
-**Comparación de posiciones.** `--compare-triangles` corre los casos de
-prueba con los dos rellenos, compara los conjuntos de píxeles y repite con
-los vértices en orden inverso. Después compara 20 000 triángulos al azar por
-cada tipo de coordenada (enteras, de medio píxel y reales) y la lista
-completa de posiciones de la nave, a su tamaño normal y acercada 6 veces:
+Para ver solo un patrón, devolverlo en gris: `return gray(franjas);`.
 
-```text
-caso                      baricentr.      lineas  distintas  orden inverso
-pequeno                           10          10          0          igual
-grande                        172000      172000          0          igual
-borde horizontal               15000       15000          0          igual
-borde vertical                 16000       16000          0          igual
-parcialmente fuera             40645       40645          0          igual
-colineales                         0           0          0          igual
-bordes sobre centros              45          45          0          igual
-diagonal sobre centros            22          22          0          igual
-vertices fraccionarios          2199        2199          0          igual
+`src/shaders/sandbox.rs` (**pruebas** en Tab) es un shader para jugar sin
+tocar los tres cuerpos.
 
-cuadrado partido en dos triangulos (deberia dar 10000 y 0):
-  baricentrico   pixeles:  10000   repetidos: 0
-  por lineas     pixeles:  10000   repetidos: 0
+### Agregar otro shader
 
-20000 triangulos al azar por tipo de coordenada:
-  enteras      triangulos con diferencias:    0   posiciones distintas:    0
-  medio pixel  triangulos con diferencias:    0   posiciones distintas:    0
-  reales       triangulos con diferencias:   13   posiciones distintas:   13
+1. Crear `src/shaders/mi_shader.rs` con `use super::kit::*;` y
+   `pub fn shade(f: &Frag) -> Rgb`.
+2. En `src/shaders/mod.rs`, agregar `mod mi_shader;` y una línea en
+   `SHADERS`. Tab lo recorre solo.
 
-nave completa:
-  1x   baricentrico    184166   por lineas    184166   posiciones distintas: 0
-  6x   baricentrico   6630776   por lineas   6630776   posiciones distintas: 0
-```
+### Dónde engancha cada efecto
 
-**Tiempo de rasterización.** `--benchmark-triangles` hace el vertex shader y
-el ensamblaje una sola vez y mide solo la rasterización de la nave completa
-(20 pasadas por medición, mediana de 7 mediciones):
+| Efecto | Qué usar |
+|---|---|
+| Material animado | `f.time` dentro del patrón |
+| Día y noche | `f.light` como máscara (por ejemplo, algo visible solo donde es casi 0) |
+| Respuestas distintas a la luz | `f.shade` con un `Material` distinto según la región |
+| Nubes | otra máscara de ruido sobre `rotate_y(f.p, f.time * velocidad)` |
+| Tormenta o vórtice | girar `p` alrededor de un punto, más cerca más giro, antes de calcular las bandas |
+| Bump mapping | una normal nueva a partir de cómo cambia un campo de altura, pasada a `f.shade` |
+| Parallax | mover `p` según `f.to_viewer` y la altura antes de muestrear |
+| Sombras de nubes | la máscara de nubes evaluada en `p` corrido hacia `f.to_sun` |
 
-| Modo | Fragmentos | Mediana por pasada |
-|---|---:|---:|
-| contorno | 2 136 808 | 229,91 ms |
-| relleno baricéntrico | 184 166 | 43,13 ms |
-| relleno por líneas | 184 166 | 42,18 ms |
+## Cuerpos celestes
 
-Los tiempos cambian unos milisegundos de una corrida a otra; los conteos de
-fragmentos no.
+### Estrella: _nombre_
 
-### Perfil
+![Estrella](assets/capturas/estrella.png)
 
-Tiempo de cada etapa del pipeline en un cuadro completo (mediana de 7
-cuadros), con la nave a su tamaño normal y acercada 6 veces. Lo mide
-`--profile-stages`, que dibuja con la misma función `render` de la ventana
-pero sin subir la textura ni esperar entre cuadros:
+_Descripción del diseño._
 
-| Etapa | Contorno 1× | Baricéntrico 1× | Líneas 1× | Contorno 6× | Baricéntrico 6× | Líneas 6× |
-|---|---:|---:|---:|---:|---:|---:|
-| vertex shader | 43 ms | 185 ms | 188 ms | 43 ms | 169 ms | 171 ms |
-| ensamblaje | 21 ms | 23 ms | 23 ms | 22 ms | 20 ms | 20 ms |
-| rasterización | 226 ms | 44 ms | 46 ms | 550 ms | 447 ms | 311 ms |
-| fragmentos (z-buffer + shader) | 24 ms | 4 ms | 4 ms | 50 ms | 49 ms | 49 ms |
-| **total** | **311 ms** | **264 ms** | **258 ms** | **664 ms** | **686 ms** | **559 ms** |
-| fragmentos generados | 2 136 808 | 184 166 | 184 166 | 7 738 436 | 6 630 776 | 6 630 776 |
+**Patrones y cómo se combinan.** _Pendiente._
 
-El vertex shader cuesta unos 43 ms sin luces; en el relleno sube a unos
-170–190 ms porque ilumina los 957 mil vértices.
+**Parámetros** (`src/shaders/star.rs`):
 
-#### Flamegraph
+| Parámetro | Qué cambia |
+|---|---|
+| | |
 
-Para ver **dónde** se va el tiempo dentro de la rasterización se perfiló
-`--benchmark-triangles` con el perfil `profiling` (release con símbolos de
-depuración). En Windows `cargo flamegraph` usa ETW, así que hay que correrlo
-en una terminal como administrador:
+### Planeta rocoso: _nombre_
 
-```sh
-cargo install flamegraph
-cargo flamegraph --profile profiling -- --benchmark-triangles
-```
+![Planeta rocoso](assets/capturas/planeta-rocoso.png)
 
-![Flamegraph de --benchmark-triangles](assets/perfil/flamegraph.svg)
+_Descripción del diseño._
 
-El SVG es interactivo si se abre directamente en el navegador
-([`assets/perfil/flamegraph.svg`](assets/perfil/flamegraph.svg)): se puede
-hacer zoom en un bloque y buscar funciones. El ancho de cada bloque es la
-proporción de muestras en las que esa función estaba en la pila, no el orden
-en que se ejecutó. Los bloques `0x7FFD...` sin nombre son el heap de Windows
-(`ntdll`), al que se llega desde la reserva y liberación de memoria de los
-`Vec`.
+**Patrones y cómo se combinan.** _Pendiente._
 
-El benchmark rasteriza 141 veces la nave con cada modo, así que el contorno,
-que es unas 5 o 6 veces más lento, se lleva la mayor parte de las muestras:
+**Parámetros** (`src/shaders/rocky.rs`):
 
-| Dónde | Muestras |
-|---|---:|
-| `rasterize` | 98,8 % |
-| — gestión de memoria (`push`, `RawVec::grow_one`, `finish_grow`, `extend`, `dealloc`, heap de Windows) | 72,9 % |
-| — cálculo | 25,9 % |
-| `triangle` (contorno) | 59,2 % |
-| — `line` (Bresenham, sin contar memoria) | 9,3 % |
-| `triangle_barycentric` | 10,9 % |
-| `triangle_scanline` | 10,7 % |
-| `extend` en `rasterize` (copiar el `Vec` de cada triángulo al grande) | 17,8 % |
-| cargar el `.obj` | 0,9 % |
+| Parámetro | Qué cambia |
+|---|---|
+| | |
 
-**Qué muestra:**
+### Gigante gaseoso: _nombre_
 
-- **El cuello de botella es la memoria, no el algoritmo.** Unas tres cuartas
-  partes del tiempo de `rasterize` se van en hacer crecer, copiar y liberar
-  vectores de fragmentos. Solo una cuarta parte es cálculo.
-- **El contorno es casi todo memoria (83 % de su tiempo).** Cada `line` crea
-  su propio `Vec` y lo hace crecer fragmento a fragmento (`push` →
-  `grow_one`). Después `triangle` copia las tres líneas a otro `Vec` con
-  `extend` y las libera, y `rasterize` lo vuelve a copiar al vector grande.
-  El algoritmo de Bresenham en sí es solo el 9,3 % de las muestras.
-- **Los dos rellenos pesan prácticamente lo mismo** (10,9 % y 10,7 %),
-  igual que en el benchmark. En ellos la memoria es un 27–28 % y el resto
-  es cálculo: `covers`, `edge_function` y el `min`/`max` del rectángulo en
-  el baricéntrico; `cross_at`, `first_pixel` y el `sort_by` de los tres
-  vértices en el de líneas.
-- **Copiar al vector grande cuesta más que rellenar.** El `extend` de
-  `rasterize` (17,8 %) pesa más que cualquiera de los dos rellenos por
-  separado.
+![Gigante gaseoso](assets/capturas/gigante-gaseoso.png)
 
-Por eso la primera mejora de la lista de abajo (pasar un `&mut Vec<Fragment>`
-para que cada función escriba directo en el vector grande) es la que más
-ganaría: elimina los `Vec` intermedios por triángulo y por línea, y con ellos
-la mayoría de esas reservas, copias y liberaciones.
+_Descripción del diseño._
 
-### Diferencias encontradas
+**Patrones y cómo se combinan.** _Pendiente._
 
-**La regla común.** Los dos rellenos responden igual a la pregunta "¿este
-píxel está adentro?":
+**Parámetros** (`src/shaders/gas_giant.rs`):
 
-1. se prueba el **centro** de cada píxel, `(x + 0.5, y + 0.5)`;
-2. un centro que cae justo sobre un borde se dibuja solo si el borde es
-   **izquierdo** o **superior** (regla *top-left*, la misma de las GPU).
+| Parámetro | Qué cambia |
+|---|---|
+| | |
 
-El baricéntrico lo aplica con las tres funciones de borde: un píxel entra si
-los tres pesos son positivos, o cero sobre un borde superior o izquierdo. El
-de líneas lo aplica por construcción: toma las filas con el centro en
-`[arriba, abajo)` y, en cada fila, los píxeles con el centro en
-`[izquierda, derecha)`, así que incluye el borde superior e izquierdo y
-excluye el inferior y derecho. Los triángulos degenerados (tres vértices
-alineados) se descartan antes de dividir entre su área, y el orden de los
-vértices no importa.
+## Efectos adicionales
 
-**Dónde se separaban.** Los casos de la guía daban 0 posiciones distintas
-desde el principio, pero en ninguno caía un centro de píxel justo sobre un
-borde inclinado. Con triángulos al azar sí aparecieron: 228 de 20 000
-triángulos con vértices enteros y 502 de 20 000 con vértices de medio píxel
-tenían algún píxel distinto, siempre un centro exactamente sobre un borde
-inclinado. El caso `diagonal sobre centros` lo reproduce: el centro
-`(4.5, 7.5)` está sobre el borde `x + y = 12`, que es izquierdo, así que la
-regla dice que entra. El baricéntrico lo incluía, porque su función de borde
-da exactamente 0. El de líneas no: calculaba primero `t = 6.5 / 11` y
-después `x = 11 − 11·t`, y con el redondeo de `f32` el cruce quedaba en
-`4.5000005` en vez de `4.5`, a la derecha del centro.
+| Efecto | Cuerpo | Archivo y función | Evidencia | Cómo funciona | Parámetro y qué cambia |
+|---|---|---|---|---|---|
+| | | | | | |
 
-**La corrección.** `cross_at` ahora multiplica antes de dividir:
-`x = x₀ + (x₁ − x₀)·(y − y₀) / (y₁ − y₀)`. Con vértices enteros o de medio
-píxel el producto es exacto y la división devuelve justo `4.5`, así que el de
-líneas decide igual que el baricéntrico. Con esos vértices las diferencias
-bajaron a 0.
-
-**Lo que queda.** Con coordenadas reales cualesquiera, 13 de 20 000
-triángulos difieren en un píxel. Son centros a menos de 0,00001 px de un
-borde: cada algoritmo redondea una cuenta distinta (la función de borde
-contra el cruce de la fila) y quedan de lados distintos. Las GPU lo evitan
-pasando los vértices a punto fijo, con unos pocos bits de subpíxel, antes de
-rasterizar; aquí no se hizo.
-
-**En la nave.** Los dos generan exactamente la misma lista de posiciones
-(184 166 fragmentos a tamaño normal y 6 630 776 acercada), y en el cuadrado
-partido en dos los dos cubren sus 10 000 píxeles sin hueco ni repetición. En
-la imagen final a tamaño normal solo 4 píxeles cambian de color, como mucho
-13 de 255 en un canal: la profundidad se interpola en distinto orden (pesos
-baricéntricos contra interpolación por filas), y en un empate de profundidad
-entre dos triángulos vecinos el redondeo de `f32` puede hacer que el z-buffer
-elija el otro. Acercada, las dos imágenes son idénticas.
-
-**Por qué el contorno es el más lento con esta malla.** Genera 11,6 veces
-más fragmentos que el relleno y tarda 5,3 veces más. Con la nave a su tamaño
-normal casi todos los triángulos miden menos de un píxel: una línea genera
-al menos un fragmento aunque mida menos de un píxel, mientras que un
-triángulo que no cubre ningún centro no genera ninguno. Además cada arista se
-dibuja dos veces, una por cada triángulo que la comparte. A ese tamaño los
-dos rellenos tardan casi lo mismo porque hacen casi el mismo trabajo: el
-rectángulo del baricéntrico tiene muy pocos píxeles y el de líneas recorre
-una fila o ninguna. Ahí pesa más el vertex shader con luces (185 ms) que la
-rasterización (44 ms).
-
-**Qué cambia al acercarse.** Con la nave 6 veces más grande los triángulos
-cubren muchos píxeles y el de líneas pasa a ser bastante más rápido: 311 ms
-contra 447 ms de rasterización. El baricéntrico prueba todos los píxeles del
-rectángulo que contiene al triángulo y descarta al menos la mitad (un
-triángulo nunca ocupa más de la mitad de ese rectángulo); el de líneas solo
-visita los píxeles de adentro.
-
-**Ideas de mejora.** Pasar a cada función de relleno un `&mut Vec<Fragment>`
-para que escriba directo en el vector grande, recortar el rectángulo y las
-filas al tamaño de la ventana (hoy los fragmentos de afuera los descarta
-`framebuffer.point`) y no clonar los vértices en el ensamblaje
-(`[&Vertex; 3]` en vez de `[Vertex; 3]`).
+Los videos se pueden grabar con **Win + Alt + R** (Xbox Game Bar) con la
+ventana enfocada.
