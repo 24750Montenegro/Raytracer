@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fastnoise-lite = "1.1.1"
 raylib = "5.5"
 # todo el dibujo es CPU pura: sin optimizaciones va mucho mas lento,
 # asi que tambien optimizamos el perfil de debug (cargo run sin --release)

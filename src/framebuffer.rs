@@ -57,28 +57,45 @@ impl Framebuffer {
         Some(y as usize * self.width as usize + x as usize)
     }
 
-    /// Pintar un pixel en el framebuffer. 
-    pub fn point(&mut self, x: i32, y: i32, color: Vector3) {
-        let Some(index) = self.index(x, y) else { return };
-
-        let pixel = &mut self.pixels[index * 4..index* 4 + 4];
-        pixel[0] = to_byte(color.x);
-        pixel[1] = to_byte(color.y);
-        pixel[2] = to_byte(color.z);
-        pixel[3] = 255;
-    }
-
-    /// prueba de profundidad
-    
-    pub fn depth_test(&mut self, x: i32, y: i32, depth: f32) -> bool {
-        let Some(index) = self.index(x, y) else { return false };
+    /// Prueba de profundidad. Si el fragmento queda delante devuelve el
+    /// indice de su pixel.
+    pub fn depth_test(&mut self, x: i32, y: i32, depth: f32) -> Option<usize> {
+        let index = self.index(x, y)?;
 
         if depth < self.depth[index] {
             self.depth[index] = depth;
-            true
+            Some(index)
         } else {
-            false
+            None
         }
+    }
+
+    /// Pinta cada pixel con `color_at(indice)`; los que devuelven None quedan
+    /// con el fondo. Las filas se reparten entre los hilos intercaladas para
+    /// que todos reciban parte de la esfera.
+    pub fn shade(&mut self, color_at: impl Fn(usize) -> Option<Color> + Sync) {
+        let width = self.width as usize;
+        let threads = std::thread::available_parallelism().map_or(1, |count| count.get());
+
+        let mut work: Vec<Vec<(usize, &mut [u8])>> = (0..threads).map(|_| Vec::new()).collect();
+        for (y, row) in self.pixels.chunks_exact_mut(width * 4).enumerate() {
+            work[y % threads].push((y, row));
+        }
+
+        let color_at = &color_at;
+        std::thread::scope(|scope| {
+            for rows in work {
+                scope.spawn(move || {
+                    for (y, row) in rows {
+                        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                            if let Some(color) = color_at(y * width + x) {
+                                pixel.copy_from_slice(&[color.r, color.g, color.b, 255]);
+                            }
+                        }
+                    }
+                });
+            }
+        });
     }
 
     /// crear la textura

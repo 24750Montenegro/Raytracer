@@ -1,12 +1,8 @@
-
 use raylib::prelude::*;
-use std::f32::consts::PI;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-mod benchmark;
 mod fragment;
 mod framebuffer;
-mod line;
 mod matrix;
 mod obj;
 mod primitive;
@@ -24,151 +20,159 @@ mod shading;
 use color::Rgb;
 use framebuffer::Framebuffer;
 use light::Light;
-use material::Material;
-use matrix::create_model_matrix;
+use matrix::{create_model_matrix, multiply, new_matrix4, rotation_x, rotation_y};
 use obj::Obj;
 use primitive::primitive_assembly;
-use rasterizer::{rasterize, TriangleMode};
-use shaders::{fragment_shader, vertex_shader};
+use rasterizer::rasterize;
+use shaders::{fragment_shader, vertex_shader, Frag, SHADERS};
 use vertex::Vertex;
 
-const MODEL_PATH: &str = "assets/models/nave-juanmontenegro-24750.obj";
+const MODEL_PATH: &str = "assets/models/sphere.obj";
+const CAPTURES_DIR: &str = "assets/capturas";
 
-/// tamaño inicial del modelo (radio / lado corto de la ventana)
+const WIDTH: i32 = 800;
+const HEIGHT: i32 = 600;
+
+/// radio de la esfera en pantalla / lado corto de la ventana
 const FIT: f32 = 0.42;
 
-/// velocidades de los controles, por segundo
-const MOVE_SPEED: f32 = 300.0;
-const ROTATE_SPEED: f32 = 1.5;
-const SCALE_SPEED: f32 = 1.8;
+const ORBIT_SPEED: f32 = 1.5;
+const ZOOM_SPEED: f32 = 1.8;
+const SUN_SPEED: f32 = 1.0;
+
+/// tan lejos que en toda la esfera llega casi en la misma direccion
+const SUN_DISTANCE: f32 = 1000.0;
+const SUN_HEIGHT: f32 = 0.35;
+const INITIAL_SUN_ANGLE: f32 = -0.8;
+
+const SHADER_KEYS: [KeyboardKey; 9] = [
+    KeyboardKey::KEY_ONE,
+    KeyboardKey::KEY_TWO,
+    KeyboardKey::KEY_THREE,
+    KeyboardKey::KEY_FOUR,
+    KeyboardKey::KEY_FIVE,
+    KeyboardKey::KEY_SIX,
+    KeyboardKey::KEY_SEVEN,
+    KeyboardKey::KEY_EIGHT,
+    KeyboardKey::KEY_NINE,
+];
 
 pub struct Uniforms {
     pub model_matrix: Matrix,
-    /// si el vertex shader calcula el color con las luces. En el contorno
-    /// no: las lineas quedan del color del vertice
-    pub lighting: bool,
-    pub lights: Vec<Light>,
+    pub view_matrix: Matrix,
+    pub viewport_matrix: Matrix,
+    pub to_viewer: Vector3,
+    pub sun: Light,
     pub ambient: Rgb,
-    pub material: Material,
+    pub time: f32,
+    pub shader: fn(&Frag) -> Rgb,
 }
 
+/// Camara ortografica que orbita alrededor de la esfera.
 #[derive(Clone, Copy, PartialEq)]
-struct Transform {
-    translation: Vector3,
-    scale: f32,
-    /// angulos en radianes alrededor de X, Y y Z
-    rotation: Vector3,
+struct Camera {
+    yaw: f32,
+    pitch: f32,
+    /// pixeles por unidad del mundo (la esfera mide 1 de radio)
+    zoom: f32,
 }
 
-impl Transform {
-    fn matrix(&self) -> Matrix {
-        create_model_matrix(self.translation, self.scale, self.rotation)
+impl Camera {
+    fn view_matrix(&self) -> Matrix {
+        multiply(&rotation_x(self.pitch), &rotation_y(-self.yaw))
+    }
+
+    fn viewport_matrix(&self) -> Matrix {
+        let s = self.zoom;
+        new_matrix4([
+            [s, 0.0, 0.0, WIDTH as f32 / 2.0],
+            [0.0, -s, 0.0, HEIGHT as f32 / 2.0],
+            [0.0, 0.0, -s, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    fn to_viewer(&self) -> Vector3 {
+        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
+        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
+        Vector3::new(sin_yaw * cos_pitch, sin_pitch, cos_yaw * cos_pitch)
     }
 }
 
-/// cuanto tardo cada etapa de un dibujo y cuantos fragmentos genero
-pub struct FrameStats {
-    /// vertex shader, ensamblaje, rasterizacion y procesamiento de fragmentos
-    pub stages: [Duration; 4],
-    pub fragments: usize,
+fn sun(angle: f32) -> Light {
+    let direction = Vector3::new(angle.sin(), SUN_HEIGHT, angle.cos()).normalized();
+    Light::new(direction * SUN_DISTANCE, Rgb::new(1.0, 0.97, 0.92), 1.15)
 }
 
-fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], mode: TriangleMode) -> FrameStats {
-    let start = Instant::now();
-
-    // 1. Procesamiento de vertices
-    let transformed_vertices: Vec<Vertex> = vertex_array
-        .iter()
-        .map(|vertex| vertex_shader(vertex, uniforms))
-        .collect();
-    let vertices_done = Instant::now();
-
-    // 2. Ensamblaje de primitivas
-    let triangles = primitive_assembly(&transformed_vertices);
-    let assembly_done = Instant::now();
-
-    // 3. Rasterizacion
-    let fragments = rasterize(&triangles, mode);
-    let fragment_count = fragments.len();
-    let raster_done = Instant::now();
-
-    // 4. Procesamiento de fragmentos
-    for fragment in fragments {
-        let x = fragment.position.x as i32;
-        let y = fragment.position.y as i32;
-
-        // relleno: solo pasa lo que queda delante de lo ya dibujado. En el
-        // contorno se ven todas las aristas, tambien las de atras
-        if mode.is_filled() && !framebuffer.depth_test(x, y, fragment.depth) {
-            continue;
-        }
-
-        let color = fragment_shader(&fragment);
-        framebuffer.point(x, y, color);
-    }
-
-    FrameStats {
-        stages: [
-            vertices_done - start,
-            assembly_done - vertices_done,
-            raster_done - assembly_done,
-            raster_done.elapsed(),
-        ],
-        fragments: fragment_count,
-    }
-}
-
-/// Mueve el modelo para que su centro quede en el origen y devuelve su
-/// radio. Asi rota sobre si mismo y se puede escalar a la ventana.
-fn center_model(vertices: &mut [Vertex]) -> f32 {
+/// Lleva el modelo a una esfera de radio 1 centrada en el origen, sin tocar
+/// sus vertices.
+fn fit_unit_sphere(vertices: &[Vertex]) -> Matrix {
     let mut min = Vector3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
     let mut max = Vector3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
-
-    for vertex in vertices.iter() {
-        let p = vertex.position;
-        min = Vector3::new(min.x.min(p.x), min.y.min(p.y), min.z.min(p.z));
-        max = Vector3::new(max.x.max(p.x), max.y.max(p.y), max.z.max(p.z));
+    for vertex in vertices {
+        min = min.min(vertex.position);
+        max = max.max(vertex.position);
     }
 
     let center = (min + max) * 0.5;
-    let mut radius: f32 = 0.0;
-    for vertex in vertices.iter_mut() {
-        vertex.position = vertex.position - center;
-        radius = radius.max(vertex.position.length());
-    }
+    let radius = vertices
+        .iter()
+        .map(|vertex| (vertex.position - center).length())
+        .fold(f32::EPSILON, f32::max);
 
-    radius.max(f32::EPSILON)
+    create_model_matrix(center * (-1.0 / radius), 1.0 / radius, Vector3::zero())
 }
 
-/// Las tres luces del raytracer: una principal arriba a la izquierda, una de
-/// relleno a la derecha y una por detras. Estan en coordenadas de pantalla
-/// (y hacia abajo, z hacia adentro), alrededor del centro de la ventana.
-fn default_lights(center: Vector3, radius: f32) -> Vec<Light> {
-    vec![
-        Light::new(
-            center + Vector3::new(-1.2 * radius, -2.2 * radius, -1.4 * radius),
-            Rgb::new(1.0, 0.96, 0.88),
-            0.9,
-        ),
-        Light::new(
-            center + Vector3::new(1.8 * radius, -0.6 * radius, -1.1 * radius),
-            Rgb::new(0.68, 0.80, 1.0),
-            0.3,
-        ),
-        Light::new(
-            center + Vector3::new(0.7 * radius, 2.0 * radius, 0.9 * radius),
-            Rgb::new(0.74, 0.84, 1.0),
-            0.34,
-        ),
-    ]
+fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex]) {
+    // 1. Procesamiento de vertices
+    let transformed: Vec<Vertex> = vertex_array
+        .iter()
+        .map(|vertex| vertex_shader(vertex, uniforms))
+        .collect();
+
+    // 2. Ensamblaje de primitivas
+    let triangles = primitive_assembly(&transformed);
+
+    // 3. Rasterizacion
+    let fragments = rasterize(&triangles, framebuffer.width as i32, framebuffer.height as i32);
+
+    // 4. Prueba de profundidad: queda el fragmento mas cercano de cada pixel
+    let mut nearest = vec![None; framebuffer.width as usize * framebuffer.height as usize];
+    for fragment in &fragments {
+        let (x, y) = (fragment.position.x as i32, fragment.position.y as i32);
+        if let Some(index) = framebuffer.depth_test(x, y, fragment.depth) {
+            nearest[index] = Some(fragment);
+        }
+    }
+
+    // 5. Fragment shader, una vez por pixel visible y en paralelo
+    framebuffer.shade(|index| nearest[index].map(|fragment| fragment_shader(fragment, uniforms).to_display()));
+}
+
+fn capture_path(shader: usize) -> String {
+    format!("{CAPTURES_DIR}/{}.png", SHADERS[shader].name.replace(' ', "-"))
+}
+
+/// Dibuja cada shader en el instante `time` y lo guarda en assets/capturas.
+fn save_all_captures(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, vertex_array: &[Vertex], time: f32) {
+    uniforms.time = time;
+    for (index, shader) in SHADERS.iter().enumerate() {
+        uniforms.shader = shader.shade;
+        let start = Instant::now();
+        framebuffer.clear();
+        render(framebuffer, uniforms, vertex_array);
+        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+
+        let path = capture_path(index);
+        match framebuffer.save(&path) {
+            Ok(()) => println!("{:<18} {elapsed:>6.1} ms   {path}", shader.name),
+            Err(problem) => eprintln!("{problem}"),
+        }
+    }
 }
 
 fn main() {
-    let window_width = 800;
-    let window_height = 600;
-
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let has_flag = |flag: &str| args.iter().any(|arg| arg == flag);
 
     let obj = match Obj::load(MODEL_PATH) {
         Ok(obj) => obj,
@@ -177,136 +181,123 @@ fn main() {
             return;
         }
     };
-    let mut vertex_array = obj.get_vertex_array();
-    let radius = center_model(&mut vertex_array);
+    let vertex_array = obj.get_vertex_array();
     println!("triangulos: {}", vertex_array.len() / 3);
 
-    let screen_center = Vector3::new(window_width as f32 / 2.0, window_height as f32 / 2.0, 0.0);
-    let fit_radius = FIT * window_width.min(window_height) as f32;
-
-    // en Blender y sube y en la pantalla baja: casi -90 grados en X la deja
-    // vista desde arriba, 180 en Z le pone la punta hacia arriba y el giro
-    // en Y la muestra de tres cuartos
-    let initial = Transform {
-        translation: screen_center,
-        scale: fit_radius / radius,
-        rotation: Vector3::new(-1.1, 0.5, PI),
+    let initial_camera = Camera {
+        yaw: 0.0,
+        pitch: 0.25,
+        zoom: FIT * WIDTH.min(HEIGHT) as f32,
     };
 
     let mut uniforms = Uniforms {
-        model_matrix: initial.matrix(),
-        lighting: false,
-        lights: default_lights(screen_center, fit_radius),
-        ambient: Rgb::new(0.24, 0.27, 0.33),
-        material: Material::polished(Color::new(196, 202, 214, 255)),
+        model_matrix: fit_unit_sphere(&vertex_array),
+        view_matrix: initial_camera.view_matrix(),
+        viewport_matrix: initial_camera.viewport_matrix(),
+        to_viewer: initial_camera.to_viewer(),
+        sun: sun(INITIAL_SUN_ANGLE),
+        ambient: Rgb::new(0.03, 0.035, 0.05),
+        time: 0.0,
+        shader: SHADERS[0].shade,
     };
 
-    // la nave como empieza y acercada 6 veces, para comparar y medir
-    let views = [
-        ("1x", initial.matrix()),
-        ("6x", Transform { scale: initial.scale * 6.0, ..initial }.matrix()),
-    ];
+    let mut framebuffer = Framebuffer::new(WIDTH as u32, HEIGHT as u32);
+    framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
 
-    if has_flag("--benchmark-triangles") {
-        benchmark::run(&vertex_array, &uniforms);
-        return;
-    }
-    if has_flag("--compare-triangles") {
-        benchmark::compare_algorithms(&vertex_array, &mut uniforms, &views);
-        return;
-    }
-    if has_flag("--profile-stages") {
-        let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
-        benchmark::profile_stages(&mut framebuffer, &vertex_array, &mut uniforms, &views);
+    if let Some(position) = args.iter().position(|arg| arg == "--capturas") {
+        let time = args.get(position + 1).and_then(|text| text.parse().ok()).unwrap_or(0.0);
+        save_all_captures(&mut framebuffer, &mut uniforms, &vertex_array, time);
         return;
     }
 
     let (mut window, raylib_thread) = raylib::init()
-        .size(window_width, window_height)
-        .title("Rasterizador")
+        .size(WIDTH, HEIGHT)
+        .title("Laboratorio de shaders")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
     window.set_target_fps(60);
-
-    let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
-    framebuffer.set_background_color(Vector3::new(0.0, 0.0, 0.0));
     framebuffer.init_texture(&mut window, &raylib_thread);
 
-    let mut mode = TriangleMode::Wireframe;
-    // el algoritmo de relleno que se usa al pasar a relleno con Tab
-    let mut fill = TriangleMode::FilledBarycentric;
-    let mut transform = initial;
-    // lo que tiene dibujado el framebuffer ahora mismo
-    let mut drawn: Option<(Transform, TriangleMode)> = None;
+    let mut camera = initial_camera;
+    let mut sun_angle = INITIAL_SUN_ANGLE;
+    let mut shader = 0;
+    let mut time = 0.0;
+    let mut paused = false;
+    let mut drawn = None;
 
-    println!("Tab = contorno / relleno | F = algoritmo de relleno");
-    println!("flechas = mover | W/S, A/D, Q/E = rotar en X, Y, Z | Z/X = escala");
-    println!("R = volver al inicio | P = guardar captura");
+    println!("Tab / Shift+Tab / 1-{} = cambiar shader", SHADERS.len().min(9));
+    println!("flechas = orbitar la camara | Z/X = zoom | Q/E = mover el sol");
+    println!("Espacio = pausar el tiempo | R = volver al inicio | P = guardar captura");
 
     while !window.window_should_close() {
         let dt = window.get_frame_time();
         let held = |key| window.is_key_down(key);
+        let shift = held(KeyboardKey::KEY_LEFT_SHIFT) || held(KeyboardKey::KEY_RIGHT_SHIFT);
 
         if window.is_key_pressed(KeyboardKey::KEY_TAB) {
-            mode = if mode.is_filled() { TriangleMode::Wireframe } else { fill };
+            let step = if shift { SHADERS.len() - 1 } else { 1 };
+            shader = (shader + step) % SHADERS.len();
         }
-        if window.is_key_pressed(KeyboardKey::KEY_F) {
-            fill = if fill == TriangleMode::FilledBarycentric {
-                TriangleMode::FilledScanline
-            } else {
-                TriangleMode::FilledBarycentric
-            };
-            if mode.is_filled() {
-                mode = fill;
+        for (index, key) in SHADER_KEYS.iter().enumerate().take(SHADERS.len()) {
+            if window.is_key_pressed(*key) {
+                shader = index;
             }
         }
+        if window.is_key_pressed(KeyboardKey::KEY_SPACE) {
+            paused = !paused;
+        }
         if window.is_key_pressed(KeyboardKey::KEY_R) {
-            transform = initial;
+            camera = initial_camera;
+            sun_angle = INITIAL_SUN_ANGLE;
+            time = 0.0;
+        }
+        if !paused {
+            time += dt;
         }
 
-        // traslacion
-        let step = MOVE_SPEED * dt;
-        if held(KeyboardKey::KEY_LEFT) { transform.translation.x -= step; }
-        if held(KeyboardKey::KEY_RIGHT) { transform.translation.x += step; }
-        if held(KeyboardKey::KEY_UP) { transform.translation.y -= step; }
-        if held(KeyboardKey::KEY_DOWN) { transform.translation.y += step; }
+        let turn = ORBIT_SPEED * dt;
+        if held(KeyboardKey::KEY_LEFT) { camera.yaw -= turn; }
+        if held(KeyboardKey::KEY_RIGHT) { camera.yaw += turn; }
+        if held(KeyboardKey::KEY_UP) { camera.pitch += turn; }
+        if held(KeyboardKey::KEY_DOWN) { camera.pitch -= turn; }
+        camera.pitch = camera.pitch.clamp(-1.5, 1.5);
 
-        // rotacion
-        let turn = ROTATE_SPEED * dt;
-        if held(KeyboardKey::KEY_W) { transform.rotation.x -= turn; }
-        if held(KeyboardKey::KEY_S) { transform.rotation.x += turn; }
-        if held(KeyboardKey::KEY_A) { transform.rotation.y -= turn; }
-        if held(KeyboardKey::KEY_D) { transform.rotation.y += turn; }
-        if held(KeyboardKey::KEY_Q) { transform.rotation.z -= turn; }
-        if held(KeyboardKey::KEY_E) { transform.rotation.z += turn; }
+        if held(KeyboardKey::KEY_Q) { sun_angle -= SUN_SPEED * dt; }
+        if held(KeyboardKey::KEY_E) { sun_angle += SUN_SPEED * dt; }
 
-        // escala: multiplicar en vez de sumar hace que el zoom se sienta
-        // igual de rapido de cerca que de lejos
-        if held(KeyboardKey::KEY_Z) { transform.scale /= SCALE_SPEED.powf(dt); }
-        if held(KeyboardKey::KEY_X) { transform.scale *= SCALE_SPEED.powf(dt); }
+        if held(KeyboardKey::KEY_Z) { camera.zoom /= ZOOM_SPEED.powf(dt); }
+        if held(KeyboardKey::KEY_X) { camera.zoom *= ZOOM_SPEED.powf(dt); }
 
-        // con cientos de miles de triangulos un cuadro tarda mas de 100 ms:
-        // se vuelve a dibujar solo si algo cambio
-        if drawn != Some((transform, mode)) {
-            // los uniforms de este dibujo
-            uniforms.model_matrix = transform.matrix();
-            uniforms.lighting = mode.is_filled();
+        let state = (camera, sun_angle, shader, time);
+        if drawn != Some(state) {
+            uniforms.view_matrix = camera.view_matrix();
+            uniforms.viewport_matrix = camera.viewport_matrix();
+            uniforms.to_viewer = camera.to_viewer();
+            uniforms.sun = sun(sun_angle);
+            uniforms.time = time;
+            uniforms.shader = SHADERS[shader].shade;
 
             let start = Instant::now();
             framebuffer.clear();
-            render(&mut framebuffer, &uniforms, &vertex_array, mode);
+            render(&mut framebuffer, &uniforms, &vertex_array);
             let elapsed = start.elapsed().as_secs_f32() * 1000.0;
 
             window.set_window_title(
                 &raylib_thread,
-                &format!("Rasterizador | {} | {elapsed:.0} ms", mode.name()),
+                &format!(
+                    "Shaders | {}/{} {} | {elapsed:.0} ms | t = {time:.1} s{}",
+                    shader + 1,
+                    SHADERS.len(),
+                    SHADERS[shader].name,
+                    if paused { " (pausa)" } else { "" },
+                ),
             );
-            drawn = Some((transform, mode));
+            drawn = Some(state);
         }
 
         if window.is_key_pressed(KeyboardKey::KEY_P) {
-            let path = format!("captura-{}.png", mode.name().replace(' ', "-"));
+            let path = capture_path(shader);
             match framebuffer.save(&path) {
                 Ok(()) => println!("captura guardada en {path}"),
                 Err(problem) => eprintln!("{problem}"),

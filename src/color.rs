@@ -66,17 +66,6 @@ impl Rgb {
 
         (self * (compress(peak) / peak)).to_color()
     }
-
-    /// El rasterizador guarda los colores como Vector3 (x = rojo, y = verde,
-    /// z = azul, de 0 a 1). Estas dos conversiones son el puente con el
-    /// sombreado, que trabaja con Rgb.
-    pub fn from_vector(color: Vector3) -> Self {
-        Rgb::new(color.x, color.y, color.z)
-    }
-
-    pub fn to_vector(self) -> Vector3 {
-        Vector3::new(self.r, self.g, self.b)
-    }
 }
 
 /// Curva de la zona alta: derecha hasta la rodilla y de ahi asintotica a 1.0,

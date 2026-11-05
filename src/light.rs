@@ -31,14 +31,6 @@ impl Light {
         }
     }
 
-    /// Una lampara: ilumina lo que tiene alrededor y nada mas.
-    pub fn lamp(position: Vector3, color: Rgb, intensity: f32, range: f32) -> Self {
-        Light {
-            range: range.max(f32::EPSILON),
-            ..Light::new(position, color, intensity)
-        }
-    }
-
     /// Cuanta de su intensidad llega a esa distancia, de 1 pegado a la
     /// lampara a 0 en el borde de su alcance.
     ///

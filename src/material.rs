@@ -1,6 +1,6 @@
 // material.rs
-// Como responde una superficie a la luz. Lo usa shading.rs.
-use raylib::prelude::*;
+// Como responde una superficie a la luz. Lo usa shading.rs; el color lo pone
+// el fragment shader.
 
 /// Albedo tipico de un material mate. Nada real devuelve toda la luz que le
 /// llega: la nieve fresca ronda 0.9 y el asfalto 0.1, asi que quedarse un
@@ -29,8 +29,6 @@ impl Albedo {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Material {
-    /// Color base de la superficie.
-    pub diffuse: Color,
     /// Fraccion de la luz incidente que la superficie devuelve.
     /// Lo que no devuelve, lo absorbe.
     pub albedo: Albedo,
@@ -52,10 +50,10 @@ pub struct Material {
     pub metallic: bool,
 }
 
+#[allow(dead_code)]
 impl Material {
-    pub fn new(diffuse: Color, albedo: Albedo, shininess: f32) -> Self {
+    pub fn new(albedo: Albedo, shininess: f32) -> Self {
         Material {
-            diffuse,
             albedo,
             shininess: shininess.max(1.0),
             emission: 0.0,
@@ -68,33 +66,33 @@ impl Material {
     /// El difuso va bajo a proposito: una lampara encendida no se ve mas
     /// clara todavia porque le de el sol, se ve encendida y punto. Dejarle el
     /// difuso alto sumaria las dos cosas y de dia saldria blanca quemada.
-    pub fn lamp(diffuse: Color, emission: f32) -> Self {
+    pub fn lamp(emission: f32) -> Self {
         Material {
             emission: emission.max(0.0),
-            ..Material::new(diffuse, Albedo::new(0.35, 0.12), 60.0)
+            ..Material::new(Albedo::new(0.35, 0.12), 60.0)
         }
     }
 
     /// Material mate (tiza, yeso): rebota la luz parejo, sin brillo.
-    pub fn matte(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(DEFAULT_ALBEDO, 0.0), 1.0)
+    pub fn matte() -> Self {
+        Material::new(Albedo::new(DEFAULT_ALBEDO, 0.0), 1.0)
     }
 
     /// Superficie barnizada: casi todo difuso y un brillo moderado.
-    pub fn polished(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.7, 0.18), 110.0)
+    pub fn polished() -> Self {
+        Material::new(Albedo::new(0.7, 0.18), 110.0)
     }
 
     /// Laqueado: mas brillo que el barniz y mas concentrado.
-    pub fn lacquer(diffuse: Color) -> Self {
-        Material::new(diffuse, Albedo::new(0.64, 0.22), 150.0)
+    pub fn lacquer() -> Self {
+        Material::new(Albedo::new(0.64, 0.22), 150.0)
     }
 
     /// Metal: poco color difuso y un brillo fuerte tenido con su color.
-    pub fn metal(diffuse: Color) -> Self {
+    pub fn metal() -> Self {
         Material {
             metallic: true,
-            ..Material::new(diffuse, Albedo::new(0.25, 0.6), 320.0)
+            ..Material::new(Albedo::new(0.25, 0.6), 320.0)
         }
     }
 }
