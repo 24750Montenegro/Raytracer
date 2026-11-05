@@ -65,7 +65,7 @@ pub struct Uniforms {
     pub sun: Light,
     pub ambient: Rgb,
     pub time: f32,
-    pub shader: fn(&Frag) -> Rgb,
+    pub shader: fn(&Frag) -> Vector3,
 }
 
 /// Camara ortografica que orbita alrededor de la esfera.
@@ -146,7 +146,7 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
     }
 
     // 5. Fragment shader, una vez por pixel visible y en paralelo
-    framebuffer.shade(|index| nearest[index].map(|fragment| fragment_shader(fragment, uniforms).to_display()));
+    framebuffer.shade(|index| nearest[index].map(|fragment| Rgb::from_vector(fragment_shader(fragment, uniforms)).to_display()));
 }
 
 fn capture_path(shader: usize) -> String {

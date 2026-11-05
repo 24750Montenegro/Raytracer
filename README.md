@@ -62,10 +62,10 @@ centro), por eso la luz se ve suave aunque la malla tenga pocos triángulos.
 
 ## Cómo escribir un shader
 
-Un shader es una función `fn shade(f: &Frag) -> Rgb` en `src/shaders/`.
-Recibe el punto que se está pintando y devuelve su color (0 a 1 por canal;
-lo que pase de 1 se comprime hacia el blanco, útil para que una estrella
-brille).
+Un shader es una función `fn shade(f: &Frag) -> Vector3` en
+`src/shaders/`. Recibe el punto que se está pintando y devuelve su color
+como `Vector3`: x = rojo, y = verde, z = azul, de 0 a 1. Lo que pase de 1 se
+comprime hacia el blanco, útil para que una estrella brille.
 
 ### Lo que trae `Frag`
 
@@ -84,7 +84,7 @@ brille).
 
 | Función | Qué hace |
 |---|---|
-| `rgb(r, g, b)`, `hex(0xff8800)`, `gray(v)` | colores |
+| `Vector3::new(1.0, 0.5, 0.0)`, `gray(v)` | colores (naranja, gris) |
 | `mix(a, b, t)` | `a` cuando t = 0, `b` cuando t = 1 |
 | `ramp(&[(0.0, a), (0.5, b), (1.0, c)], t)` | degradado por paradas |
 | `smoothstep(e0, e1, x)`, `step(borde, x)` | convertir un valor en máscara, suave o dura |
@@ -109,16 +109,16 @@ Una capa es una máscara de 0 a 1, un color y una forma de combinarlos:
 ```rust
 use super::kit::*;
 
-pub fn shade(f: &Frag) -> Rgb {
-    let mut color = hex(0x1b2440);
+pub fn shade(f: &Frag) -> Vector3 {
+    let mut color = Vector3::new(0.11, 0.14, 0.25);
 
     // encima: mix
     let franjas = wave(f.p.y * 12.0 + f.time);
-    color = mix(color, hex(0x5d7bd5), franjas);
+    color = mix(color, Vector3::new(0.36, 0.48, 0.84), franjas);
 
     // sumar: brillos, emisión
     let calor = fbm(f.p * 4.0, 4);
-    color = color + hex(0xffb347) * calor * 0.3;
+    color = color + Vector3::new(1.0, 0.7, 0.28) * calor * 0.3;
 
     // multiplicar: oscurecer, sombras
     color = color * (0.6 + 0.4 * cellular(f.p * 6.0));
@@ -136,7 +136,7 @@ tocar los tres cuerpos.
 ### Agregar otro shader
 
 1. Crear `src/shaders/mi_shader.rs` con `use super::kit::*;` y
-   `pub fn shade(f: &Frag) -> Rgb`.
+   `pub fn shade(f: &Frag) -> Vector3`.
 2. En `src/shaders/mod.rs`, agregar `mod mi_shader;` y una línea en
    `SHADERS`. Tab lo recorre solo.
 

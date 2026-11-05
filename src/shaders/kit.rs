@@ -6,34 +6,23 @@ use std::sync::LazyLock;
 use fastnoise_lite::{CellularReturnType, FastNoiseLite, NoiseType};
 
 pub use super::Frag;
-pub use crate::color::Rgb;
 pub use crate::material::Material;
 pub use raylib::math::Vector3;
 
-// ---------- color ----------
+// ---------- color: Vector3 con x = rojo, y = verde, z = azul, de 0 a 1 ----------
 
-pub fn rgb(r: f32, g: f32, b: f32) -> Rgb {
-    Rgb::new(r, g, b)
-}
-
-/// `hex(0xff8800)`
-pub fn hex(code: u32) -> Rgb {
-    let channel = |shift: u32| ((code >> shift) & 0xff) as f32 / 255.0;
-    Rgb::new(channel(16), channel(8), channel(0))
-}
-
-pub fn gray(value: f32) -> Rgb {
-    Rgb::new(value, value, value)
+pub fn gray(value: f32) -> Vector3 {
+    Vector3::new(value, value, value)
 }
 
 /// `a` cuando t = 0, `b` cuando t = 1.
-pub fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+pub fn mix(a: Vector3, b: Vector3, t: f32) -> Vector3 {
     let t = t.clamp(0.0, 1.0);
     a * (1.0 - t) + b * t
 }
 
 /// Degradado por paradas `(posicion, color)` ordenadas por posicion.
-pub fn ramp(stops: &[(f32, Rgb)], t: f32) -> Rgb {
+pub fn ramp(stops: &[(f32, Vector3)], t: f32) -> Vector3 {
     let (first, last) = (stops[0], stops[stops.len() - 1]);
     if t <= first.0 {
         return first.1;

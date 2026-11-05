@@ -16,7 +16,7 @@ mod star;
 
 pub struct Shader {
     pub name: &'static str,
-    pub shade: fn(&Frag) -> Rgb,
+    pub shade: fn(&Frag) -> Vector3,
 }
 
 /// Lo que recorre Tab, en orden. Un shader nuevo se agrega aca.
@@ -45,13 +45,13 @@ pub struct Frag<'a> {
 
 impl Frag<'_> {
     /// Iluminacion difusa basica: ambiente mas el sol.
-    pub fn lit(&self, base: Rgb) -> Rgb {
+    pub fn lit(&self, base: Vector3) -> Vector3 {
         self.shade(base, &Material::matte(), self.normal)
     }
 
     /// Ambiente, Lambert, Phong y emision del material, con la normal que se
     /// le pase (la de la esfera u otra calculada por el shader).
-    pub fn shade(&self, base: Rgb, material: &Material, normal: Vector3) -> Rgb {
+    pub fn shade(&self, base: Vector3, material: &Material, normal: Vector3) -> Vector3 {
         let surface = SurfacePoint {
             point: self.point,
             normal,
@@ -61,10 +61,11 @@ impl Frag<'_> {
             std::slice::from_ref(&self.uniforms.sun),
             self.uniforms.ambient,
             material,
-            base,
+            Rgb::from_vector(base),
             &surface,
             shading::no_shadows,
         )
+        .to_vector()
     }
 }
 
@@ -91,7 +92,7 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     }
 }
 
-pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Rgb {
+pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let p = fragment.object_position.normalized();
     // en una esfera la normal es la direccion desde el centro: sale suave
     // aunque la malla tenga pocos triangulos
