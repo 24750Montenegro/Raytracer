@@ -2,9 +2,10 @@
 
 Rasterizador por software escrito en Rust: todo se dibuja en CPU. La misma
 esfera (`assets/models/sphere.obj`, 192 triángulos) se pinta con distintos
-fragment shaders, y cada shader es un cuerpo celeste. No se usan texturas ni
-se modifican los vértices: todo el aspecto sale de funciones matemáticas y
-ruido.
+fragment shaders, y cada shader es un cuerpo celeste. El planeta rocoso tiene
+dos lunas que giran y orbitan; el gigante gaseoso tiene dos anillos blancos
+concentricos en el ecuador. No se usan texturas: el aspecto de las superficies
+sale de funciones matemáticas y ruido.
 
 > El laboratorio anterior (la nave, los rellenos y sus mediciones) está en la
 > rama `feat/obj-rendering`.
@@ -57,6 +58,9 @@ vértices → vertex shader → ensamblaje → rasterización → z-buffer → f
   núcleos (`Framebuffer::shade`).
 - **Fragment shader**: arma un `Frag` con todo lo que se sabe del punto y
   llama al shader elegido con Tab.
+- **Accesorios**: las lunas y los anillos son mallas adicionales que pasan
+  por la misma rasterización y prueba de profundidad del planeta; sus
+  transformaciones dependen del tiempo de la escena.
 
 La esfera no gira: lo que se mueve es la cámara. El sol queda fijo respecto
 a la esfera, así que al orbitar se ven el lado de día y el de noche. La
