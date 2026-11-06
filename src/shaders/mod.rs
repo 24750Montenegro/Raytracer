@@ -19,15 +19,26 @@ pub struct Shader {
     /// Nombre del cuerpo celeste, el que se muestra en pantalla.
     pub body: &'static str,
     pub shade: fn(&Frag) -> Vector3,
+    pub accessories: fn(f32) -> Vec<Accessory>,
+}
+
+pub struct Accessory {
+    pub vertices: &'static [Vertex],
+    pub model_matrix: Matrix,
+    pub shade: fn(&Frag) -> Vector3,
 }
 
 /// Lo que recorre Tab, en orden. Un shader nuevo se agrega aca.
 pub const SHADERS: &[Shader] = &[
-    Shader { name: "estrella", body: "Lunan't", shade: star::shade },
-    Shader { name: "planeta rocoso", body: "Bocchi", shade: rocky::shade },
-    Shader { name: "gigante gaseoso", body: "JupyterNotebook", shade: gas_giant::shade },
-    Shader { name: "pruebas", body: "Sandbox", shade: sandbox::shade },
+    Shader { name: "estrella", body: "Lunan't", shade: star::shade, accessories: no_accessories },
+    Shader { name: "planeta rocoso", body: "Bocchi", shade: rocky::shade, accessories: rocky::accessories },
+    Shader { name: "gigante gaseoso", body: "JupyterNotebook", shade: gas_giant::shade, accessories: gas_giant::accessories },
+    Shader { name: "pruebas", body: "Sandbox", shade: sandbox::shade, accessories: no_accessories },
 ];
+
+fn no_accessories(_: f32) -> Vec<Accessory> {
+    Vec::new()
+}
 
 /// Todo lo que un shader sabe del punto que esta pintando.
 pub struct Frag<'a> {
@@ -82,8 +93,12 @@ fn transform(matrix: &Matrix, v: Vector3, w: f32) -> Vector3 {
     )
 }
 
-pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
-    let world = transform(&uniforms.model_matrix, vertex.position, 1.0);
+pub fn vertex_shader_with_matrix(
+    vertex: &Vertex,
+    model_matrix: &Matrix,
+    uniforms: &Uniforms,
+) -> Vertex {
+    let world = transform(model_matrix, vertex.position, 1.0);
     let view = transform(&uniforms.view_matrix, world, 1.0);
     let screen = transform(&uniforms.viewport_matrix, view, 1.0);
 
@@ -94,11 +109,16 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     }
 }
 
-pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
+pub fn fragment_shader_with(
+    fragment: &Fragment,
+    uniforms: &Uniforms,
+    model_matrix: &Matrix,
+    shade: fn(&Frag) -> Vector3,
+) -> Vector3 {
     let p = fragment.object_position.normalized();
     // en una esfera la normal es la direccion desde el centro: sale suave
     // aunque la malla tenga pocos triangulos
-    let normal = transform(&uniforms.model_matrix, p, 0.0).normalized();
+    let normal = transform(model_matrix, p, 0.0).normalized();
     let (to_sun, _) = uniforms.sun.direction_from(fragment.world_position);
 
     let frag = Frag {
@@ -112,5 +132,5 @@ pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
         uniforms,
     };
 
-    (uniforms.shader)(&frag)
+    shade(&frag)
 }

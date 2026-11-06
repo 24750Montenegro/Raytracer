@@ -1,10 +1,17 @@
 use super::kit::*;
+use super::Accessory;
+
+use std::sync::LazyLock;
 
 const BANDS: f32 = 12.0;
 const FALL_SPEED: f32 = 0.80;
 const TURBULENCE: f32 = 0.32;
 const COLOR_SPEED: f32 = 0.90;
 const GLOW: f32 = 1.0;
+const RING_COLOR: Vector3 = Vector3::new(0.96, 0.98, 1.0);
+
+static INNER_RING: LazyLock<Vec<Vertex>> = LazyLock::new(|| ring_mesh(1.18, 1.31, 128));
+static OUTER_RING: LazyLock<Vec<Vertex>> = LazyLock::new(|| ring_mesh(1.40, 1.56, 128));
 
 // Paleta Dracula
 const LIGHT: [Vector3; 4] = [
@@ -43,4 +50,30 @@ pub fn shade(f: &Frag) -> Vector3 {
     color = color * (0.4 + 0.8 * vetas);
 
     f.shade(color, &Material::lamp(GLOW), f.normal)
+}
+
+pub fn accessories(time: f32) -> Vec<Accessory> {
+    let model_matrix =
+        create_model_matrix(Vector3::zero(), 1.0, Vector3::new(0.0, time * 0.04, 0.0));
+    vec![
+        Accessory {
+            vertices: INNER_RING.as_slice(),
+            model_matrix,
+            shade: shade_ring,
+        },
+        Accessory {
+            vertices: OUTER_RING.as_slice(),
+            model_matrix,
+            shade: shade_ring,
+        },
+    ]
+}
+
+fn shade_ring(f: &Frag) -> Vector3 {
+    let normal = if f.to_sun.y >= 0.0 {
+        Vector3::new(0.0, 1.0, 0.0)
+    } else {
+        Vector3::new(0.0, -1.0, 0.0)
+    };
+    f.shade(RING_COLOR, &Material::lamp(0.12), normal)
 }

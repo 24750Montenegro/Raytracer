@@ -1,12 +1,14 @@
 #![allow(dead_code, unused_imports)]
 
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use std::sync::LazyLock;
 
 use fastnoise_lite::{CellularReturnType, FastNoiseLite, NoiseType};
 
 pub use super::Frag;
 pub use crate::material::{Albedo, Material};
+pub use crate::matrix::create_model_matrix;
+pub use crate::vertex::Vertex;
 pub use raylib::math::Vector3;
 
 // ---------- color: Vector3 con x = rojo, y = verde, z = azul, de 0 a 1 ----------
@@ -146,6 +148,60 @@ pub fn rotate(p: Vector3, axis: Vector3, angle: f32) -> Vector3 {
     let k = axis.normalized();
     let (sin, cos) = angle.sin_cos();
     p * cos + k.cross(p) * sin + k * (k.dot(p) * (1.0 - cos))
+}
+
+pub fn sphere_mesh(slices: u32, stacks: u32) -> Vec<Vertex> {
+    let point = |stack: u32, slice: u32| {
+        let latitude = PI * stack as f32 / stacks as f32;
+        let longitude = TAU * slice as f32 / slices as f32;
+        let ring = latitude.sin();
+        Vector3::new(
+            ring * longitude.cos(),
+            latitude.cos(),
+            ring * longitude.sin(),
+        )
+    };
+    let mut vertices = Vec::with_capacity((slices * stacks * 6) as usize);
+
+    for stack in 0..stacks {
+        for slice in 0..slices {
+            let a = point(stack, slice);
+            let b = point(stack + 1, slice);
+            let c = point(stack, slice + 1);
+            let d = point(stack + 1, slice + 1);
+            push_triangle(&mut vertices, a, b, c);
+            push_triangle(&mut vertices, c, b, d);
+        }
+    }
+
+    vertices
+}
+
+pub fn ring_mesh(inner_radius: f32, outer_radius: f32, segments: u32) -> Vec<Vertex> {
+    let mut vertices = Vec::with_capacity((segments * 6) as usize);
+    for segment in 0..segments {
+        let angle_a = TAU * segment as f32 / segments as f32;
+        let angle_b = TAU * (segment + 1) as f32 / segments as f32;
+        let point =
+            |radius: f32, angle: f32| Vector3::new(radius * angle.cos(), 0.0, radius * angle.sin());
+        let inner_a = point(inner_radius, angle_a);
+        let outer_a = point(outer_radius, angle_a);
+        let inner_b = point(inner_radius, angle_b);
+        let outer_b = point(outer_radius, angle_b);
+        push_triangle(&mut vertices, inner_a, outer_a, inner_b);
+        push_triangle(&mut vertices, inner_b, outer_a, outer_b);
+    }
+    vertices
+}
+
+fn push_triangle(vertices: &mut Vec<Vertex>, a: Vector3, b: Vector3, c: Vector3) {
+    for position in [a, b, c] {
+        vertices.push(Vertex::new(
+            position,
+            position.normalized(),
+            raylib::math::Vector2::zero(),
+        ));
+    }
 }
 
 // ---------- luz ----------

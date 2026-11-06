@@ -24,7 +24,7 @@ use matrix::{create_model_matrix, multiply, new_matrix4, rotation_x, rotation_y}
 use obj::Obj;
 use primitive::primitive_assembly;
 use rasterizer::rasterize;
-use shaders::{fragment_shader, vertex_shader, Frag, SHADERS};
+use shaders::{fragment_shader_with, vertex_shader_with_matrix, Accessory, Frag, SHADERS};
 use vertex::Vertex;
 
 const MODEL_PATH: &str = "assets/models/sphere.obj";
@@ -123,30 +123,54 @@ fn fit_unit_sphere(vertices: &[Vertex]) -> Matrix {
     create_model_matrix(center * (-1.0 / radius), 1.0 / radius, Vector3::zero())
 }
 
-fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex]) {
-    // 1. Procesamiento de vertices
-    let transformed: Vec<Vertex> = vertex_array
-        .iter()
-        .map(|vertex| vertex_shader(vertex, uniforms))
-        .collect();
+fn render(
+    framebuffer: &mut Framebuffer,
+    uniforms: &Uniforms,
+    vertex_array: &[Vertex],
+    accessories: &[Accessory],
+) {
+    let mut objects = vec![(&vertex_array[..], &uniforms.model_matrix, uniforms.shader)];
+    objects.extend(
+        accessories
+            .iter()
+            .map(|object| (object.vertices, &object.model_matrix, object.shade)),
+    );
 
-    // 2. Ensamblaje de primitivas
-    let triangles = primitive_assembly(&transformed);
+    let mut nearest = std::iter::repeat_with(|| None)
+        .take(framebuffer.width as usize * framebuffer.height as usize)
+        .collect::<Vec<_>>();
+    for (object_index, (vertices, model_matrix, _)) in objects.iter().enumerate() {
+        let transformed: Vec<Vertex> = vertices
+            .iter()
+            .map(|vertex| vertex_shader_with_matrix(vertex, model_matrix, uniforms))
+            .collect();
+        let triangles = primitive_assembly(&transformed);
+        let fragments = rasterize(
+            &triangles,
+            framebuffer.width as i32,
+            framebuffer.height as i32,
+        );
 
-    // 3. Rasterizacion
-    let fragments = rasterize(&triangles, framebuffer.width as i32, framebuffer.height as i32);
-
-    // 4. Prueba de profundidad: queda el fragmento mas cercano de cada pixel
-    let mut nearest = vec![None; framebuffer.width as usize * framebuffer.height as usize];
-    for fragment in &fragments {
-        let (x, y) = (fragment.position.x as i32, fragment.position.y as i32);
-        if let Some(index) = framebuffer.depth_test(x, y, fragment.depth) {
-            nearest[index] = Some(fragment);
+        for fragment in fragments {
+            let (x, y) = (fragment.position.x as i32, fragment.position.y as i32);
+            if let Some(index) = framebuffer.depth_test(x, y, fragment.depth) {
+                nearest[index] = Some((fragment, object_index));
+            }
         }
     }
 
-    // 5. Fragment shader, una vez por pixel visible y en paralelo
-    framebuffer.shade(|index| nearest[index].map(|fragment| Rgb::from_vector(fragment_shader(fragment, uniforms)).to_display()));
+    framebuffer.shade(|index| {
+        nearest[index].as_ref().map(|(fragment, object_index)| {
+            let (_, model_matrix, shade) = objects[*object_index];
+            Rgb::from_vector(fragment_shader_with(
+                fragment,
+                uniforms,
+                model_matrix,
+                shade,
+            ))
+            .to_display()
+        })
+    });
 }
 
 fn capture_path(shader: usize) -> String {
@@ -160,7 +184,8 @@ fn save_all_captures(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, ver
         uniforms.shader = shader.shade;
         let start = Instant::now();
         framebuffer.clear();
-        render(framebuffer, uniforms, vertex_array);
+        let accessories = (shader.accessories)(time);
+        render(framebuffer, uniforms, vertex_array, &accessories);
         let elapsed = start.elapsed().as_secs_f32() * 1000.0;
 
         let path = capture_path(index);
@@ -280,7 +305,8 @@ fn main() {
 
             let start = Instant::now();
             framebuffer.clear();
-            render(&mut framebuffer, &uniforms, &vertex_array);
+            let accessories = (SHADERS[shader].accessories)(time);
+            render(&mut framebuffer, &uniforms, &vertex_array, &accessories);
             let elapsed = start.elapsed().as_secs_f32() * 1000.0;
 
             window.set_window_title(

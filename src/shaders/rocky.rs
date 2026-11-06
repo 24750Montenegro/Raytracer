@@ -1,4 +1,7 @@
 use super::kit::*;
+use super::Accessory;
+
+use std::sync::LazyLock;
 
 const SPIN: f32 = 0.05;
 const TERRAIN_SCALE: f32 = 1.7;
@@ -23,6 +26,10 @@ const MAUVE: Vector3 = Vector3::new(0.62, 0.36, 0.52);
 const SILVER: Vector3 = Vector3::new(0.84, 0.86, 0.90);
 const CLOUD: Vector3 = Vector3::new(1.0, 0.93, 0.97);
 const HAZE: Vector3 = Vector3::new(1.0, 0.62, 0.80);
+const MOON_ORBIT: f32 = 1.52;
+const MOON_RADIUS: f32 = 0.15;
+
+static MOON_MESH: LazyLock<Vec<Vertex>> = LazyLock::new(|| sphere_mesh(18, 12));
 
 fn terrain(p: Vector3) -> f32 {
     fbm(p * TERRAIN_SCALE + 3.0, 4)
@@ -72,4 +79,58 @@ pub fn shade(f: &Frag) -> Vector3 {
 
     color = mix(color, f.lit(CLOUD), cloud * 0.92);
     color + HAZE * rim(f, 2.5) * (0.08 + 0.5 * f.light)
+}
+
+pub fn accessories(time: f32) -> Vec<Accessory> {
+    let orbit = time * 0.48;
+    let (sin, cos) = orbit.sin_cos();
+    let moon_positions = [
+        Vector3::new((MOON_ORBIT + 0.2) * cos, 0.18 * sin, MOON_ORBIT * (sin + 0.25)),
+        Vector3::new(MOON_ORBIT * cos, 0.58 * sin, MOON_ORBIT * sin),
+    ];
+
+    moon_positions
+        .into_iter()
+        .enumerate()
+        .map(|(index, position)| Accessory {
+            vertices: MOON_MESH.as_slice(),
+            model_matrix: create_model_matrix(
+                position,
+                MOON_RADIUS,
+                Vector3::new(time * 0.7, time * (0.9 + index as f32 * 0.2), time * 0.25),
+            ),
+            shade: if index == 0 {
+                shade_blue_moon
+            } else {
+                shade_yellow_moon
+            },
+        })
+        .collect()
+}
+
+fn moon_surface(f: &Frag, base: Vector3, shadow: Vector3) -> Vector3 {
+    let terrain = fbm(f.p * 8.0, 4);
+    let crater = smoothstep(0.52, 0.78, fbm(f.p * 18.0 + 2.0, 3));
+    let color = mix(shadow, base, 0.35 + terrain * 0.55);
+    f.shade(
+        mix(color, shadow, crater * 0.35),
+        &Material::polished(),
+        f.normal,
+    )
+}
+
+fn shade_blue_moon(f: &Frag) -> Vector3 {
+    moon_surface(
+        f,
+        Vector3::new(0.28, 0.78, 1.0),
+        Vector3::new(0.06, 0.30, 0.56),
+    )
+}
+
+fn shade_yellow_moon(f: &Frag) -> Vector3 {
+    moon_surface(
+        f,
+        Vector3::new(1.0, 0.82, 0.26),
+        Vector3::new(0.60, 0.31, 0.06),
+    )
 }
