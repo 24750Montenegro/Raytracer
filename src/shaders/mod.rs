@@ -13,6 +13,9 @@ mod gas_giant;
 mod rocky;
 mod sandbox;
 mod star;
+mod flora;
+mod iris;
+mod veridia;
 
 pub struct Shader {
     pub name: &'static str,
@@ -34,6 +37,9 @@ pub const SHADERS: &[Shader] = &[
     Shader { name: "planeta rocoso", body: "Bocchi", shade: rocky::shade, accessories: rocky::accessories },
     Shader { name: "gigante gaseoso", body: "JupyterNotebook", shade: gas_giant::shade, accessories: gas_giant::accessories },
     Shader { name: "pruebas", body: "Sandbox", shade: sandbox::shade, accessories: no_accessories },
+    Shader { name: "flora", body: "Flora", shade: flora::shade, accessories: no_accessories },
+    Shader { name: "veridia", body: "Veridia", shade: veridia::shade, accessories: no_accessories },
+    Shader { name: "iris", body: "Iris", shade: iris::shade, accessories: no_accessories },
 ];
 
 fn no_accessories(_: f32) -> Vec<Accessory> {
