@@ -31,7 +31,7 @@ cargo run --release -- --capturas 2.0
 | Tecla | Qué hace |
 |---|---|
 | **Tab** / **Shift+Tab** | siguiente / anterior shader |
-| **1**–**4** | elegir un shader directamente |
+| **1**–**7** | elegir un shader directamente |
 | **Flechas** | orbitar la cámara alrededor de la esfera |
 | **Z** / **X** | alejar / acercar |
 | **Q** / **E** | mover el sol alrededor de la esfera |
@@ -287,16 +287,143 @@ la textura de gas.
 | `GLOW` | cuánto brilla solo: más alto, neón más vivo, pero las líneas oscuras se aclaran |
 | `LIGHT`, `DARK` | colores del neón y de las líneas oscuras (paleta Dracula) |
 
+### Estrella: Flora
+
+![Estrella Flora](assets/capturas/flora.png)
+
+Una estrella inspirada en una flor: células rosadas y durazno sobre un fondo
+ciruela, unidas por filamentos cálidos. Su superficie evoluciona y pulsa sin
+mover los vértices ni depender de la luz del sol.
+
+**Patrones y cómo se combinan.**
+
+1. `flow`: tres muestras de ruido con desplazamientos temporales diferentes
+deforman las coordenadas de entrada. La deformación cambia la forma de las
+células, no solamente su color.
+2. `cellular(q)` produce las zonas calientes alrededor de los centros de las
+celdas; `cell_edge(q)` genera una red de filamentos sobre sus bordes.
+3. Una onda de la altura, modulada por la deformación y el tiempo, agrega
+variaciones semejantes a pétalos. Se combina con las células para obtener
+el calor que selecciona los colores ciruela, rosa y durazno.
+4. Los filamentos mezclan el color base con un tono crema. El borde de la
+esfera se oscurece según la dirección de vista para dar sensación de volumen.
+5. Un pulso suave modifica la intensidad. Todo el color es emisivo: mover
+el sol no apaga la estrella.
+
+**Parámetros** (`src/shaders/flora.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `CELL_SCALE` | frecuencia de las células: más alto, células más pequeñas |
+| `WARP_STRENGTH` | cuánto se deforman las células y sus filamentos |
+| `FLOW_SPEED` | velocidad de evolución del patrón |
+| `FILAMENT_STRENGTH` | intensidad de la mezcla de los filamentos cálidos |
+| `PLUM, ROSE, PEACH, CREAM` | paleta del fondo, zonas calientes y filamentos |
+
+### Planeta rocoso: Veridia
+
+![Planeta rocoso Veridia](assets/capturas/veridia.png)
+
+Un mundo de océanos azules y turquesa, vegetación verde, campos rosados,
+cordilleras violetas e hielo polar. Las nubes se desplazan sobre un terreno
+fijo y, de noche, se ilumina una red de filamentos verdes en los continentes.
+
+**Patrones y cómo se combinan.**
+
+1. `terrain`: un `fbm` de cuatro octavas, con coordenadas deformadas por ruido,
+   determina la altura. `SEA_LEVEL` separa océano y tierra con una transición
+   suave; otros umbrales seleccionan montañas e hielo.
+2. Un campo de humedad independiente distribuye campos florales rosados sobre
+   la vegetación. No se usa solamente la misma altura para todos los biomas.
+3. `parallax`: recorre capas de profundidad en la dirección tangencial de
+   `f.to_viewer` hasta cruzar el campo `1 - height`. El terreno se muestrea en
+   la coordenada desplazada: sus detalles cambian de posición aparente con
+   la cámara, sin mover vértices ni usar el tiempo para ese desplazamiento.
+4. `terrain_normal`: diferencias centrales de la altura en dos tangentes
+   inclinan la normal. Esa normal produce el relieve aparente al iluminar
+   la tierra; la máscara terrestre conserva el océano sin ese relieve.
+5. El océano usa un material con reflejo de Phong y la vegetación y roca usan
+   un material mate. Por eso las regiones responden de manera diferente a la luz.
+6. `cloud_mask`: otro campo de ruido gira a `CLOUD_SPEED`, independiente de
+   los continentes. `CLOUD_COVERAGE` ajusta cuánto cielo queda cubierto.
+7. `shell_point`: calcula dónde un rayo alcanza una altura esférica analítica.
+   Hacia la cámara se muestrea la nube visible; hacia el sol se muestrea la
+   nube que bloquea la luz. Ambas consultas usan la misma máscara, altura y
+   tiempo, de modo que las sombras corresponden a las nubes. No se agrega
+   una segunda malla.
+8. `cell_edge` dibuja los filamentos bioluminiscentes. Una máscara basada en
+   `dot(normal, to_sun)` los activa en el lado nocturno y los desvanece al
+   amanecer. Las nubes se mezclan después y se añade un halo azul suave.
+
+**Parámetros** (`src/shaders/veridia.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `SEA_LEVEL`, `TERRAIN_SCALE` | proporción de océano y tamaño de los continentes |
+| `BUMP_STRENGTH` | fuerza del relieve de normales; 0 lo desactiva |
+| `PARALLAX_DEPTH` | profundidad aparente dependiente de la vista; 0 la desactiva |
+| `PARALLAX_STEPS` | cantidad de capas de búsqueda: más capas aumentan el trabajo por fragmento |
+| `CLOUD_COVERAGE` | cobertura: 0 despejado y 1 completamente cubierto |
+| `CLOUD_SPEED` | velocidad de las nubes respecto al terreno fijo |
+| `CLOUD_HEIGHT` | altura analítica que determina la separación entre nubes y sombras |
+| `SHADOW_STRENGTH` | intensidad de las sombras; 0 las desactiva sin quitar las nubes |
+| `NIGHT_GLOW` | intensidad de la bioluminiscencia nocturna |
+| `OCEAN_SPECULAR` | fuerza del reflejo especular del océano |
+| `DEEP_BLUE`, `TURQUOISE`, `FOREST`, `MEADOW`, `BLOSSOM`, `MOUNTAIN`, `ICE`, `CLOUD`, `GLOW` | paleta de las regiones y efectos |
+
+El parallax es una aproximación local: no modifica la silueta ni agrega
+geometría. El relieve y el desplazamiento usan el marco del modelo actual,
+con escala uniforme y sin rotación de la malla.
+
+### Gigante gaseoso: Iris
+
+![Gigante gaseoso Iris](assets/capturas/iris.png)
+
+Una atmósfera de bandas azules, verde menta, lavanda y rosado. Las corrientes
+se ondulan suavemente y una tormenta elíptica curva las franjas a su alrededor.
+
+**Patrones y cómo se combinan.**
+
+1. `vortex`: expresa el punto en una base local centrada en la tormenta. La
+   distancia elíptica controla un giro que disminuye suavemente hasta cero
+   fuera de la región. Una máscara evita repetir la tormenta en el lado opuesto.
+2. Las coordenadas deformadas se usan antes de evaluar las bandas. Así se
+   curvan las franjas existentes, en lugar de pintar un círculo de otro color.
+3. Un seno de la altura produce las bandas. Un `fbm` de baja frecuencia
+   ondula sus bordes y otro ruido más fino agrega detalle. El ruido se
+   desplaza lentamente con el tiempo.
+4. La máscara de bandas mezcla azul con menta y lavanda con rosa. Una
+   segunda onda mezcla esas dos paletas, manteniendo transiciones suaves.
+5. El detalle fino modula el color y `f.lit` aplica la iluminación mate del
+   proyecto. Iris no usa anillos ni geometría adicional.
+
+**Parámetros** (`src/shaders/iris.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `BAND_FREQUENCY` | cantidad de bandas: más alto, bandas más finas |
+| `TURBULENCE` | cuánto se ondulan los bordes de las bandas |
+| `FLOW_SPEED` | velocidad de evolución del ruido atmosférico |
+| `VORTEX_STRENGTH` | intensidad del giro localizado; 0 desactiva la tormenta |
+| `VORTEX_WIDTH`, `VORTEX_HEIGHT` | ancho y alto de la región elíptica |
+| `BLUE`, `MINT`, `LAVENDER`, `PINK` | paleta de la atmósfera |
+
 ## Efectos adicionales
+
+Las rutas de shader de esta tabla son relativas a `src/shaders/`. Cada efecto
+se solicita una sola vez por entrega, aunque aparezca en varios cuerpos.
+
 
 | Efecto | Cuerpo | Archivo y función | Evidencia | Cómo funciona | Parámetro y qué cambia |
 |---|---|---|---|---|---|
-| Material animado | los tres | `star.rs`, `rocky.rs`, `gas_giant.rs` → `shade` | _video pendiente_ | `f.time` hace fluir el plasma y latir la estrella, gira el suelo y las nubes, baja las franjas y les cambia el color | `FLOW_SPEED`, `PULSE`, `SPIN`, `FALL_SPEED`, `COLOR_SPEED` |
-| Día y noche | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | grietas emisivas pesadas por `1 - smoothstep(0, 0.12, f.light)` | `NIGHT_GLOW`: intensidad; `CRACK_SCALE`: tamaño |
-| Respuesta distinta a la luz por región | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | agua con Phong cerrado, roca mate, plata metálica | `PEAK_LEVEL`, `SEA_LEVEL`: dónde empieza cada región |
-| Nubes | Bocchi | `rocky.rs` → `clouds` | _video pendiente_ | `fbm` estirado que gira más rápido que el suelo | `CLOUD_SPEED`, `CLOUD_COVER` |
-| Sombras de nubes | Bocchi | `rocky.rs` → `shade` | _video pendiente_ | la máscara de nubes evaluada en `p + to_sun · CLOUD_HEIGHT` oscurece el suelo | `CLOUD_HEIGHT`: cuánto se corre la sombra |
-| Bump mapping | Bocchi | `kit.rs` → `bump`, `rocky.rs` → `terrain` | _video pendiente_ | diferencias finitas de la altura en dos tangentes inclinan la normal | `BUMP`: fuerza del relieve |
+| Material animado | Lunan't, Bocchi, JupyterNotebook, Flora e Iris | `star.rs`, `rocky.rs`, `gas_giant.rs`, `flora.rs`, `iris.rs` → `shade`; Flora también usa `flow` | [Video](assets/videos/shaders_demo.mp4), **00:00–00:05**, **00:16–00:20** y **00:25–00:32**: evolución de plasma, colores y células | El tiempo desplaza plasma, suelo o bandas; Flora deforma sus células y pulsa; Iris evoluciona su ruido. No se cuenta nuevamente el movimiento exigido para las nubes | `FLOW_SPEED`, `PULSE`, `SPIN`, `FALL_SPEED`, `COLOR_SPEED`; en Flora, `WARP_STRENGTH` cambia la deformación |
+| Día y noche | Bocchi y Veridia | `rocky.rs`, `veridia.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:08–00:10**, **00:33–00:34** y **00:38–00:40**: filamentos luminosos en regiones oscuras | Bocchi usa grietas pesadas por `f.light`; Veridia usa el producto firmado entre normal y dirección solar para activar filamentos verdes solo de noche | `NIGHT_GLOW`: intensidad; en Bocchi, `CRACK_SCALE`: tamaño |
+| Respuesta distinta a la luz por región | Bocchi y Veridia | `rocky.rs`, `veridia.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: vistas generales de las regiones; la diferencia especular/mate no queda aislada con claridad | Bocchi combina agua con Phong, roca mate y plata metálica; Veridia combina océano especular con tierra mate | `SEA_LEVEL`: distribución de regiones; `PEAK_LEVEL` en Bocchi; `OCEAN_SPECULAR` en Veridia |
+| Nubes | Bocchi y Veridia | `rocky.rs` → `clouds`; `veridia.rs` → `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: se aprecia la cubierta; los cambios de vista dificultan separar su movimiento del terreno | Máscaras de ruido con movimiento propio; Veridia permite variar la cobertura entre cielo despejado y cubierto | `CLOUD_SPEED`; `CLOUD_COVER` en Bocchi; `CLOUD_COVERAGE` en Veridia |
+| Sombras de nubes | Bocchi y Veridia | `rocky.rs` → `shade`; `veridia.rs` → `shell_point`, `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:33–00:40**: vista general; no demuestra de forma concluyente el desplazamiento de la sombra respecto a las nubes al variar solo la luz | Bocchi desplaza la consulta hacia el sol; Veridia intersecta la dirección solar con una altura analítica y consulta la misma máscara que las nubes visibles | `CLOUD_HEIGHT`: separación; `SHADOW_STRENGTH` en Veridia: oscuridad |
+| Bump mapping | Bocchi y Veridia | `kit.rs` → `bump`, `rocky.rs` → `terrain`; `veridia.rs` → `terrain_normal`, `height` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: superficie sombreada; no hay una comparación que aísle la contribución de las normales perturbadas | Diferencias finitas de altura inclinan la normal de iluminación sin cambiar los vértices; Veridia usa diferencias centrales | `BUMP` en Bocchi; `BUMP_STRENGTH` en Veridia: fuerza del relieve |
+| Tormenta o vórtice localizado | Iris | `iris.rs` → `vortex`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:43–00:45**: las bandas se curvan alrededor de una región localizada; [captura](assets/capturas/iris.png) | Una rotación local, limitada por distancia elíptica, deforma las coordenadas antes de generar las bandas | `VORTEX_STRENGTH`: intensidad; `VORTEX_WIDTH`, `VORTEX_HEIGHT`: extensión |
+| Parallax dependiente de la vista | Veridia | `veridia.rs` → `parallax`, `height`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:33–00:40**: cambia el punto de vista, pero no permite distinguir inequívocamente parallax de movimiento normal de cámara y animación | Marcha por capas hasta cruzar el campo de altura; desplaza el muestreo según la vista y sugiere profundidad sin cambiar la malla | `PARALLAX_DEPTH`: profundidad; `PARALLAX_STEPS`: pasos de búsqueda |
 
 Los videos se pueden grabar con **Win + Alt + R** (Xbox Game Bar) con la
 ventana enfocada.
