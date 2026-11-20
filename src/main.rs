@@ -7,6 +7,7 @@ mod matrix;
 mod obj;
 mod primitive;
 mod rasterizer;
+mod solar_system;
 mod shaders;
 mod triangle;
 mod vertex;
@@ -66,6 +67,15 @@ pub struct Uniforms {
     pub ambient: Rgb,
     pub time: f32,
     pub shader: fn(&Frag) -> Vector3,
+}
+
+/// Referencia temporal a cualquier malla de la escena. A diferencia de
+/// `Accessory` (cuyas mallas son estáticas), permite dibujar la esfera cargada
+/// desde OBJ junto con los planetas sin copiar su geometría cada cuadro.
+struct SceneObject<'a> {
+    vertices: &'a [Vertex],
+    model_matrix: Matrix,
+    shade: fn(&Frag) -> Vector3,
 }
 
 /// Camara ortografica que orbita alrededor de la esfera.
@@ -129,20 +139,27 @@ fn render(
     vertex_array: &[Vertex],
     accessories: &[Accessory],
 ) {
-    let mut objects = vec![(&vertex_array[..], &uniforms.model_matrix, uniforms.shader)];
-    objects.extend(
-        accessories
-            .iter()
-            .map(|object| (object.vertices, &object.model_matrix, object.shade)),
-    );
+    let mut objects = vec![SceneObject {
+        vertices: vertex_array,
+        model_matrix: uniforms.model_matrix.clone(),
+        shade: uniforms.shader,
+    }];
+    objects.extend(accessories.iter().map(|object| SceneObject {
+        vertices: object.vertices,
+        model_matrix: object.model_matrix.clone(),
+        shade: object.shade,
+    }));
+    render_objects(framebuffer, uniforms, &objects);
+}
 
+fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &[SceneObject<'_>]) {
     let mut nearest = std::iter::repeat_with(|| None)
         .take(framebuffer.width as usize * framebuffer.height as usize)
         .collect::<Vec<_>>();
-    for (object_index, (vertices, model_matrix, _)) in objects.iter().enumerate() {
-        let transformed: Vec<Vertex> = vertices
+    for (object_index, object) in objects.iter().enumerate() {
+        let transformed: Vec<Vertex> = object.vertices
             .iter()
-            .map(|vertex| vertex_shader_with_matrix(vertex, model_matrix, uniforms))
+            .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, uniforms))
             .collect();
         let triangles = primitive_assembly(&transformed);
         let fragments = rasterize(
@@ -161,12 +178,12 @@ fn render(
 
     framebuffer.shade(|index| {
         nearest[index].as_ref().map(|(fragment, object_index)| {
-            let (_, model_matrix, shade) = objects[*object_index];
+            let object = &objects[*object_index];
             Rgb::from_vector(fragment_shader_with(
                 fragment,
                 uniforms,
-                model_matrix,
-                shade,
+                &object.model_matrix,
+                object.shade,
             ))
             .to_display()
         })
@@ -198,6 +215,9 @@ fn save_all_captures(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, ver
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // El sistema solar queda como experiencia principal. --shaders conserva
+    // el visor anterior para inspeccionar los shaders individualmente.
+    let solar_mode = !args.iter().any(|arg| arg == "--shaders");
 
     let obj = match Obj::load(MODEL_PATH) {
         Ok(obj) => obj,
@@ -211,8 +231,8 @@ fn main() {
 
     let initial_camera = Camera {
         yaw: 0.0,
-        pitch: 0.25,
-        zoom: FIT * WIDTH.min(HEIGHT) as f32,
+        pitch: if solar_mode { 1.12 } else { 0.25 },
+        zoom: if solar_mode { 0.035 * WIDTH.min(HEIGHT) as f32 } else { FIT * WIDTH.min(HEIGHT) as f32 },
     };
 
     let mut uniforms = Uniforms {
@@ -237,7 +257,7 @@ fn main() {
 
     let (mut window, raylib_thread) = raylib::init()
         .size(WIDTH, HEIGHT)
-        .title("Laboratorio de shaders")
+        .title(if solar_mode { "Sistema solar — renderer por software" } else { "Laboratorio de shaders" })
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
@@ -250,6 +270,7 @@ fn main() {
     let mut time = 0.0;
     let mut paused = false;
     let mut drawn = None;
+    let mut solar_drawn: Option<(Camera, f32)> = None;
 
     println!("Tab / Shift+Tab / 1-{} = cambiar shader", SHADERS.len().min(9));
     println!("flechas = orbitar la camara | Z/X = zoom | Q/E = mover el sol");
@@ -258,6 +279,88 @@ fn main() {
     while !window.window_should_close() {
         let dt = window.get_frame_time();
         let held = |key| window.is_key_down(key);
+
+        if solar_mode {
+            if window.is_key_pressed(KeyboardKey::KEY_SPACE) {
+                paused = !paused;
+                solar_drawn = None;
+            }
+            if window.is_key_pressed(KeyboardKey::KEY_R) {
+                camera = initial_camera;
+                time = 0.0;
+                paused = false;
+            }
+            if !paused { time += dt; }
+
+            let turn = ORBIT_SPEED * dt;
+            if held(KeyboardKey::KEY_LEFT) { camera.yaw -= turn; }
+            if held(KeyboardKey::KEY_RIGHT) { camera.yaw += turn; }
+            if held(KeyboardKey::KEY_UP) { camera.pitch += turn; }
+            if held(KeyboardKey::KEY_DOWN) { camera.pitch -= turn; }
+            camera.pitch = camera.pitch.clamp(-1.5, 1.5);
+            if held(KeyboardKey::KEY_Z) { camera.zoom /= ZOOM_SPEED.powf(dt); }
+            if held(KeyboardKey::KEY_X) { camera.zoom *= ZOOM_SPEED.powf(dt); }
+            camera.zoom = camera.zoom.clamp(8.0, 900.0);
+
+            let state = (camera, time);
+            if solar_drawn != Some(state) {
+                uniforms.view_matrix = camera.view_matrix();
+                uniforms.viewport_matrix = camera.viewport_matrix();
+                uniforms.to_viewer = camera.to_viewer();
+                uniforms.time = time;
+                // La fuente puntual coincide con la estrella en el origen.
+                uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
+
+                let star = solar_system::star_pose();
+                let planets = solar_system::planet_poses(time);
+                let unit_sphere = fit_unit_sphere(&vertex_array);
+                let mut objects = Vec::with_capacity(1 + planets.len() * 3);
+                objects.push(SceneObject {
+                    vertices: &vertex_array,
+                    model_matrix: multiply(&star.model_matrix, &unit_sphere),
+                    shade: star.shader,
+                });
+                for planet in &planets {
+                    objects.push(SceneObject {
+                        vertices: &vertex_array,
+                        model_matrix: multiply(&planet.model_matrix, &unit_sphere),
+                        shade: planet.shader,
+                    });
+                    for accessory in &planet.accessories {
+                        objects.push(SceneObject {
+                            vertices: accessory.vertices,
+                            model_matrix: accessory.model_matrix.clone(),
+                            shade: accessory.shade,
+                        });
+                    }
+                }
+                for accessory in &star.accessories {
+                    objects.push(SceneObject {
+                        vertices: accessory.vertices,
+                        model_matrix: accessory.model_matrix.clone(),
+                        shade: accessory.shade,
+                    });
+                }
+
+                let start = Instant::now();
+                framebuffer.clear();
+                render_objects(&mut framebuffer, &uniforms, &objects);
+                let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+                window.set_window_title(
+                    &raylib_thread,
+                    &format!("Sistema solar | {} planetas | {elapsed:.0} ms | t = {time:.1} s{}", planets.len(), if paused { " (pausa)" } else { "" }),
+                );
+                solar_drawn = Some(state);
+            }
+
+            framebuffer.swap_buffers(&mut window, &raylib_thread, |overlay| {
+                overlay.draw_text("Sistema solar", 18, 16, 24, Color::WHITE);
+                overlay.draw_text("Flechas: orbitar camara | Z/X: zoom | Espacio: pausa | R: reiniciar", 18, 46, 16, Color::LIGHTGRAY);
+                overlay.draw_text("Sol: Lunan't | Planetas: Bocchi, JupyterNotebook, Flora y Veridia", 18, 68, 16, Color::LIGHTGRAY);
+            });
+            continue;
+        }
+
         let shift = held(KeyboardKey::KEY_LEFT_SHIFT) || held(KeyboardKey::KEY_RIGHT_SHIFT);
 
         if window.is_key_pressed(KeyboardKey::KEY_TAB) {
