@@ -311,15 +311,17 @@ fn main() {
                 // La fuente puntual coincide con la estrella en el origen.
                 uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
 
-                let star = solar_system::star_pose();
+                let stars = solar_system::star_poses(time);
                 let planets = solar_system::planet_poses(time);
                 let unit_sphere = fit_unit_sphere(&vertex_array);
-                let mut objects = Vec::with_capacity(1 + planets.len() * 3);
-                objects.push(SceneObject {
-                    vertices: &vertex_array,
-                    model_matrix: multiply(&star.model_matrix, &unit_sphere),
-                    shade: star.shader,
-                });
+                let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3);
+                for star in &stars {
+                    objects.push(SceneObject {
+                        vertices: &vertex_array,
+                        model_matrix: multiply(&star.model_matrix, &unit_sphere),
+                        shade: star.shader,
+                    });
+                }
                 for planet in &planets {
                     objects.push(SceneObject {
                         vertices: &vertex_array,
@@ -334,14 +336,6 @@ fn main() {
                         });
                     }
                 }
-                for accessory in &star.accessories {
-                    objects.push(SceneObject {
-                        vertices: accessory.vertices,
-                        model_matrix: accessory.model_matrix.clone(),
-                        shade: accessory.shade,
-                    });
-                }
-
                 let start = Instant::now();
                 framebuffer.clear();
                 render_objects(&mut framebuffer, &uniforms, &objects);
@@ -356,7 +350,7 @@ fn main() {
             framebuffer.swap_buffers(&mut window, &raylib_thread, |overlay| {
                 overlay.draw_text("Sistema solar", 18, 16, 24, Color::WHITE);
                 overlay.draw_text("Flechas: orbitar camara | Z/X: zoom | Espacio: pausa | R: reiniciar", 18, 46, 16, Color::LIGHTGRAY);
-                overlay.draw_text("Sol: Lunan't | Planetas: Bocchi, JupyterNotebook, Flora y Veridia", 18, 68, 16, Color::LIGHTGRAY);
+                overlay.draw_text("Estrellas: Lunan't + Asterion | Planetas: Bocchi, JupyterNotebook, Flora, Veridia e Iris", 18, 68, 16, Color::LIGHTGRAY);
             });
             continue;
         }
