@@ -3,11 +3,9 @@
 // assets/models. Se usan las versiones reducidas porque todo se dibuja en
 // CPU y la nave esta en pantalla todo el tiempo.
 use raylib::prelude::*;
-use std::f32::consts::PI;
 use std::path::Path;
 
 use crate::fit_unit_sphere;
-use crate::matrix::{multiply, rotation_y};
 use crate::obj::Obj;
 use crate::vertex::Vertex;
 
@@ -57,9 +55,8 @@ fn load(path: &Path) -> Option<Ship> {
 
     Some(Ship {
         name: file_name(path).trim_end_matches(REDUCED_SUFFIX).to_string(),
-        // Blender exporta con el frente del modelo hacia +z; media vuelta lo
-        // deja mirando hacia -z
-        fit: multiply(&rotation_y(PI), &fit_unit_sphere(&vertices)),
+        // Blender ya exporta con el frente del modelo hacia -z
+        fit: fit_unit_sphere(&vertices),
         vertices,
     })
 }

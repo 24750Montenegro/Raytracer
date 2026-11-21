@@ -33,7 +33,7 @@ cargo run --release -- --capturas 2.0
 Al abrir el programa aparece **Selecciona tu nave**: cada OBJ terminado en
 `-reduced.obj` de `assets/models` gira en su propio marco para verlo antes de
 elegir. Para sumar una nave basta con dejar su versión reducida en esa
-carpeta, con el frente hacia +z como lo exporta Blender.
+carpeta, con el frente hacia -z como lo exporta Blender.
 
 | Control | Qué hace |
 |---|---|
