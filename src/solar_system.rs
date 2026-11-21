@@ -1,4 +1,5 @@
 use raylib::prelude::*;
+use std::sync::LazyLock;
 
 use crate::matrix::{create_model_matrix, multiply, rotation_y};
 use crate::shaders::{Accessory, SHADERS};
@@ -30,6 +31,15 @@ pub const PLANETS: &[Body] = &[
     Body { name: "Iris", shader_name: "iris", orbit_radius: 11.6, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
 ];
 
+static ORBIT_MESHES: LazyLock<Vec<Vec<Vertex>>> = LazyLock::new(|| {
+    let mut radii = Vec::with_capacity(PLANETS.len() + 2);
+    radii.extend([0.48, 0.92]); // trayectorias distintas de la pareja binaria
+    radii.extend(PLANETS.iter().map(|planet| planet.orbit_radius));
+    radii.into_iter()
+        .map(|radius| crate::shaders::kit::ring_mesh(radius - 0.018, radius + 0.018, 160))
+        .collect()
+});
+
 fn shader_index(name: &str) -> usize {
     SHADERS.iter().position(|shader| shader.name == name)
         .unwrap_or_else(|| panic!("No existe el shader '{name}' en SHADERS"))
@@ -46,8 +56,6 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
         );
         let shader = &SHADERS[shader_index(body.shader_name)];
         let mut accessories = (shader.accessories)(time);
-        // Los anillos/lunas nacen en coordenadas locales del planeta.
-        // Componer con el modelo del planeta los coloca en la órbita correcta.
         for accessory in &mut accessories {
             accessory.model_matrix = multiply(&model_matrix, &accessory.model_matrix);
         }
@@ -62,15 +70,15 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
 }
 
 pub fn star_poses(time: f32) -> Vec<BodyPose> {
-    let angle = time * 0.34;
+    let angle = time * 1.15;
     let (sin, cos) = angle.sin_cos();
     let centers = [
-        Vector3::new(0.72 * cos, 0.0, 0.72 * sin),
-        Vector3::new(-0.72 * cos, 0.0, -0.72 * sin),
+        Vector3::new(0.48 * cos, 0.0, 0.48 * sin),
+        Vector3::new(-0.92 * cos, 0.0, -0.92 * sin),
     ];
     let star_shader = &SHADERS[shader_index("estrella")];
     centers.into_iter().enumerate().map(|(index, center)| {
-        let radius = if index == 0 { 0.82 } else { 0.68 };
+        let radius = if index == 0 { 0.60 } else { 0.48 };
         let spin = if index == 0 { 0.12 } else { -0.16 };
         let model_matrix = create_model_matrix(
             center,
@@ -87,6 +95,18 @@ pub fn star_poses(time: f32) -> Vec<BodyPose> {
     }).collect()
 }
 
+pub fn orbit_guides() -> Vec<Accessory> {
+    ORBIT_MESHES.iter().map(|mesh| Accessory {
+        vertices: mesh.as_slice(),
+        model_matrix: create_model_matrix(Vector3::zero(), 1.0, Vector3::zero()),
+        shade: orbit_guide_shade,
+    }).collect()
+}
+
+fn orbit_guide_shade(_: &crate::shaders::Frag) -> Vector3 {
+    Vector3::new(0.18, 0.22, 0.28)
+}
+
 fn companion_star_shade(f: &crate::shaders::Frag) -> Vector3 {
     let violet = (SHADERS[shader_index("estrella")].shade)(f);
     Vector3::new(
@@ -95,5 +115,3 @@ fn companion_star_shade(f: &crate::shaders::Frag) -> Vector3 {
         violet.x * 0.40 + violet.z * 0.55,
     )
 }
-
-pub fn sphere_mesh<'a>(vertices: &'a [Vertex]) -> &'a [Vertex] { vertices }
