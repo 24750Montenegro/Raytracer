@@ -23,10 +23,17 @@ pub fn shade(f: &Frag) -> Vector3 {
     f.shade(HULL, &Material::lacquer(), f.normal) + fill(f, HULL) + RIM * (rim(f, 3.0) * 0.55)
 }
 
-// ---------- juanmontenegro: paneles negros, uniones rojas y cola plateada ----------
+// ---------- juanmontenegro: paneles negros, uniones rojas y tubos plateados ----------
 
-/// Desde aca hacia +z (la cola, donde va el motor) el casco es plateado.
-const TAIL_START: f32 = 0.8;
+/// El recuadro de los tubos, en la cara de atras de la nave (donde va el
+/// motor), es lo unico plateado. Medidas en coordenadas del OBJ.
+const TUBES_HALF_WIDTH: f32 = 0.47;
+const TUBES_BOTTOM: f32 = -0.25;
+const TUBES_TOP: f32 = 0.64;
+/// La cara de atras empieza aca en z.
+const TUBES_FACE: f32 = 0.8;
+/// Ancho de la linea roja que enmarca el recuadro.
+const FRAME_WIDTH: f32 = 0.03;
 /// Paneles por unidad del OBJ.
 const PANEL_SCALE: f32 = 1.0;
 /// Ancho de las uniones entre paneles, en la escala de `cell_edge`.
@@ -58,20 +65,32 @@ pub fn panels(f: &Frag) -> Vector3 {
     let polished = Material { metallic: true, ..Material::new(Albedo::new(0.6, 0.5), 90.0) };
     let silver = f.shade(brushed, &polished, f.normal) + fill(f, brushed * 1.6) + SHEEN * rim(f, 2.0);
 
-    let tail = smoothstep(TAIL_START - 0.04, TAIL_START + 0.04, f.p.z);
-    let color = mix(panel, silver, tail);
+    let tubes = tubes_box(f.p, 0.0);
+    let color = mix(panel, silver, tubes);
 
     // lo que brilla en rojo: las uniones entre paneles (mas encendidas en
-    // algunas vetas que en otras), el corte con la cola y una luz chica en el
-    // centro de algunos paneles
+    // algunas vetas que en otras), un marco alrededor de los tubos y una luz
+    // chica en el centro de algunos paneles
     let streak = 0.25 + 0.75 * smoothstep(0.45, 0.7, noise(f.p * 1.3 + 5.0));
-    let seam = (1.0 - smoothstep(SEAM_WIDTH * 0.5, SEAM_WIDTH, edge)) * streak * (1.0 - tail);
-    let cut = 1.0 - smoothstep(0.012, 0.03, (f.p.z - TAIL_START).abs());
-    let lamp = (1.0 - smoothstep(0.03, 0.05, cellular(q)))
-        * step(1.0 - PANEL_LIGHTS, cell_value(q))
-        * (1.0 - tail);
+    let seam = (1.0 - smoothstep(SEAM_WIDTH * 0.5, SEAM_WIDTH, edge)) * streak;
+    let frame = tubes_box(f.p, FRAME_WIDTH) - tubes;
+    let lamp = (1.0 - smoothstep(0.03, 0.05, cellular(q))) * step(1.0 - PANEL_LIGHTS, cell_value(q));
     let pulse = 0.85 + 0.15 * (f.time * 2.2).sin();
-    color + SEAM_RED * (seam.max(cut).max(lamp) * SEAM_GLOW * pulse)
+    let glow = (seam.max(lamp) * (1.0 - tubes)).max(frame);
+    color + SEAM_RED * (glow * SEAM_GLOW * pulse)
+}
+
+/// 1 dentro del recuadro de los tubos agrandado en `grow` hacia los lados,
+/// 0 afuera, con el borde suavizado.
+fn tubes_box(p: Vector3, grow: f32) -> f32 {
+    const SOFT: f32 = 0.01;
+    let inside = |value: f32, low: f32, high: f32| {
+        smoothstep(low - SOFT, low + SOFT, value) * (1.0 - smoothstep(high - SOFT, high + SOFT, value))
+    };
+    let half_width = TUBES_HALF_WIDTH + grow;
+    inside(p.x, -half_width, half_width)
+        * inside(p.y, TUBES_BOTTOM - grow, TUBES_TOP + grow)
+        * smoothstep(TUBES_FACE - SOFT, TUBES_FACE + SOFT, p.z)
 }
 
 // ---------- alejandraaviles: abeja de broche ----------

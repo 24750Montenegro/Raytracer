@@ -60,8 +60,8 @@ está.
 **Cascos.** Las naves no usan texturas de imagen: igual que los planetas, su
 superficie sale de funciones y ruido sobre la posición en el modelo
 (`src/shaders/ship.rs`). La de juanmontenegro es de paneles negros brillantes
-(celdas de Voronoi) con uniones y luces rojas encendidas, y una cola de metal
-plateado donde va el motor. La de alejandraaviles imita un broche de abeja:
+(celdas de Voronoi) con uniones y luces rojas encendidas; solo el recuadro
+de los tubos de atrás, donde va el motor, es de metal plateado. La de alejandraaviles imita un broche de abeja:
 esmalte amarillo con franjas negras, cabeza negra con un aro dorado y alas de
 vidrio nacarado con venas doradas. El rasterizador guarda un solo fragmento
 por píxel, así que las alas no dejan ver lo que hay detrás: la transparencia
