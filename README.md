@@ -57,6 +57,10 @@ En la vista del sistema solar completo la nave queda sin mando y se va
 frenando, mientras el sistema sigue girando; un círculo naranja marca dónde
 está.
 
+Al apuntar con la mira a una estrella o un planeta aparece junto a ella un
+recuadro con su nombre y su tipo (estrella, planeta rocoso, gigante gaseoso).
+Si la mira cae sobre varios, uno delante del otro, se muestra el más cercano.
+
 **Cascos.** Las naves no usan texturas de imagen: igual que los planetas, su
 superficie sale de funciones y ruido sobre la posición en el modelo
 (`src/shaders/ship.rs`). La de juanmontenegro es de paneles negros brillantes
@@ -83,11 +87,25 @@ la que apunta la cámara, y los anillos de JupyterNotebook se abrían y
 cerraban con solo mover el mouse.
 Las órbitas y las estrellas del fondo usan la misma cuenta, pero punto por punto.
 
-Lo que más pesa en CPU es la cantidad de píxeles que cubre un planeta y lo
-caro que es su shader, no la matriz. Por eso un cuerpo que queda detrás de la
-cámara o fuera de la pantalla no se transforma ni se rasteriza, y los que se
-ven grandes cambian a una esfera más fina para que no se noten las facetas
-de `sphere.obj`.
+**Rendimiento.** Lo que más pesa en CPU es la cantidad de píxeles que cubre
+un planeta y lo caro que es su shader, no la matriz. Para que acercarse no
+hunda los cuadros por segundo, sin achicar nada:
+
+- Lo que no se ve no se procesa: un cuerpo detrás de la cámara o fuera de la
+  pantalla no se transforma ni se rasteriza, la mitad de atrás de cada esfera
+  se descarta antes de rasterizar, y de un píxel tapado nunca se arma el
+  fragmento.
+- La rasterización corre en paralelo: la pantalla se corta en franjas de 8
+  filas que se reparten entre los núcleos (`Framebuffer::rasterize_bands`).
+- Un cuerpo que se ve con más de 160 píxeles de radio se sombrea grueso: se
+  calcula el shader en un píxel de cada 2×2 y el resto se interpola. Los
+  bordes y los detalles finos (donde las muestras difieren mucho, como las
+  grietas de Bocchi) se sombrean completos.
+- Los que se ven grandes cambian a una esfera más fina para que no se noten
+  las facetas de `sphere.obj`.
+
+Con un planeta llenando la pantalla, un cuadro pasó de 55–190 ms a 14–80 ms
+(Veridia es el más caro por su parallax).
 
 ## Laboratorio de shaders (`--shaders`)
 
@@ -114,11 +132,14 @@ vértices → vertex shader → ensamblaje → rasterización → z-buffer → f
 - **Vertex shader** (`src/shaders/mod.rs`): la matriz de modelo lleva la
   esfera a radio 1 en el origen, la de vista la mira desde la cámara orbital
   y la de viewport la pasa a píxeles (proyección ortográfica).
-- **Rasterización** (`src/triangle.rs`): relleno baricéntrico que interpola
-  la profundidad, la posición en el modelo y la posición en el mundo.
+- **Rasterización** (`src/triangle.rs`): relleno baricéntrico, en paralelo
+  por franjas de filas. La prueba de profundidad se hace al momento y solo
+  del píxel que queda delante se interpolan la posición en el modelo, la
+  posición en el mundo y la normal.
 - **Z-buffer**: queda el fragmento más cercano de cada píxel, y el fragment
   shader corre una sola vez por píxel visible, repartido entre todos los
-  núcleos (`Framebuffer::shade`).
+  núcleos (`Framebuffer::shade`). Los hilos se crean una sola vez
+  (`src/pool.rs`).
 - **Fragment shader**: arma un `Frag` con todo lo que se sabe del punto y
   llama al shader elegido con Tab.
 - **Accesorios**: las lunas y los anillos son mallas adicionales que pasan
