@@ -1,224 +1,526 @@
-# Raytracer
+# Proyecto 3: Space Travel
 
-Un trazador de rayos por CPU, escrito en Rust, que dibuja cuatro islas
-flotantes de bloques generadas con ruido. Cada bloque es geometría de verdad:
-el relieve del adoquín, las vetas de mineral y las piedras que sobresalen de
-la roca son cajas que el trazador interseca, no un dibujo sobre una cara
-plana.
+Rasterizador por software escrito en Rust: todo se dibuja en CPU. La misma
+esfera (`assets/models/sphere.obj`, 192 triángulos) se pinta con distintos
+fragment shaders, y cada shader es un cuerpo celeste. El planeta rocoso tiene
+dos lunas que giran y orbitan; el gigante gaseoso tiene dos anillos blancos
+concentricos en el ecuador. No se usan texturas: el aspecto de las superficies
+sale de funciones matemáticas y ruido.
 
-![Las cuatro islas](docs/escena.png)
+> El laboratorio anterior (la nave, los rellenos y sus mediciones) está en la
+> rama `feat/obj-rendering`.
 
-## Demostración
+## Demo
 
-https://youtu.be/Bn879OOaCaQ
-
-<video src="assets/demo_video.mp4" controls="controls" width="100%"></video>
+![Demo: selección de nave y vuelo por el sistema solar](assets/videos/space-travel-demo.gif)
 
 ## Cómo ejecutarlo
 
-Hace falta [Rust](https://rustup.rs/). La única dependencia es `raylib`, y se
-usa nada más para abrir la ventana, subir el cuadro a la pantalla, leer los
-PNG y prestar sus tipos de vector y color; todo el trazado es propio.
-
 ```sh
-cargo run --release
+cargo run --release                 # elegir nave y volar por el sistema solar
+cargo run --release -- --orbital    # el sistema solar con cámara orbital
+cargo run --release -- --shaders    # el laboratorio, un shader a la vez
 ```
 
-El perfil de depuración también está compilado con optimizaciones
-(`opt-level = 3` en `Cargo.toml`), así que `cargo run` a secas anda casi
-igual de rápido; `--release` agrega LTO y una sola unidad de compilación.
+La primera compilación construye raylib desde C, así que necesita CMake y un
+compilador de C (en Windows, las Build Tools de Visual Studio).
 
-Cada corrida sortea un terreno nuevo y escribe su semilla en la consola. Para
-volver a uno que gustó, se le pasa esa semilla:
-
-```sh
-cargo run --release -- 20240519
-```
-
-### Sacar una captura sin abrir la ventana
+Para guardar una captura de cada shader en `assets/capturas/` sin abrir la
+ventana (el número es el instante, en segundos):
 
 ```sh
-cargo run --release -- 42 --shot escena.png              # el encuadre inicial
-cargo run --release -- 42 --shot cerca.png 5.75 0.3 0.15 3
+cargo run --release -- --capturas 2.0
 ```
 
-Los cuatro números que van después del archivo son opcionales y en este
-orden: **giro**, **inclinación** (los dos en radianes), **zoom** (factor sobre
-la distancia inicial, menos de 1 acerca) e **isla** a la que apuntar la cámara
-(0 bosque, 1 desierto, 2 nieve, 3 cantera). Sin ese último la cámara apunta al
-centro del mapa, que es el hueco de cielo que queda entre las cuatro.
+## Selección de nave y vuelo
 
-## Controles
+Al abrir el programa aparece **Selecciona tu nave**: cada OBJ terminado en
+`-reduced.obj` de `assets/models` gira en su propio marco para verlo antes de
+elegir. Para sumar una nave basta con dejar su versión reducida en esa
+carpeta, con el frente hacia -z como lo exporta Blender.
 
-| Entrada | Qué hace |
+| Control | Qué hace |
 |---|---|
-| Arrastrar con el **botón izquierdo** | girar la escena |
-| Arrastrar con el **botón derecho** | correr la vista |
-| **Rueda** | acercar y alejar |
-| **Esc** o cerrar la ventana | salir |
+| **Mouse** / **←** **→** (**A** **D**) | mirar otra nave |
+| **Click** / **Enter** | despegar con esa nave |
+| **W** | acelerar; al soltarla la nave frena sola |
+| **Mouse** | apuntar: la nave gira hacia donde está la mira (el centro de la pantalla es seguir derecho) |
+| **Tab** | mostrar las órbitas; otra vez, ver el sistema solar completo; otra vez, volver a la nave |
+| **Flechas** / **Z** **X** | en la vista del sistema: orbitar la cámara y acercar o alejar |
+| **R** | volver al punto de partida |
+| **Backspace** | volver a la selección de nave |
 
-El botón derecho hace falta: al acercarse, la cámara apunta al centro del
-mapa, que es aire. Para meterse en una isla hay que correr el objetivo
-primero.
+La cámara va en tercera persona, siempre a la misma distancia detrás de la
+nave. La dirección desde la que mira sigue a la nave con un poco de retraso,
+así que al girar se ve a la nave ladearse y desplazarse en pantalla. Durante
+el vuelo el puntero se reemplaza por una mira circular dibujada en CPU. La
+nave no puede atravesar estrellas ni planetas, que miden entre 16 y 23 veces
+su radio.
 
-Mientras se mueve la cámara se traza un rayo cada cuatro píxeles en cada eje
-—dieciséis veces menos rayos— y con un solo rebote; en cuanto se suelta el
-mouse se dibuja un único cuadro completo. En una máquina de escritorio ese
-cuadro definitivo son alrededor de **1,1 segundos a 1000×1000**, con 140 000
-a 190 000 cuerpos en la escena.
+En la vista del sistema solar completo la nave queda sin mando y se va
+frenando, mientras el sistema sigue girando; un círculo naranja marca dónde
+está.
 
-## Lo principal
+Al apuntar con la mira a una estrella o un planeta aparece junto a ella un
+recuadro con su nombre y su tipo (estrella, planeta rocoso, gigante gaseoso).
+Si la mira cae sobre varios, uno delante del otro, se muestra el más cercano.
 
-### Bloques 3D de verdad
+**Cascos.** Las naves no usan texturas de imagen: igual que los planetas, su
+superficie sale de funciones y ruido sobre la posición en el modelo
+(`src/shaders/ship.rs`). La de juanmontenegro es de paneles negros brillantes
+(celdas de Voronoi) con uniones y luces rojas encendidas; solo el recuadro
+de los tubos de atrás, donde va el motor, es de metal plateado. La de alejandraaviles imita un broche de abeja:
+esmalte amarillo con franjas negras, cabeza negra con un aro dorado y alas de
+vidrio nacarado con venas doradas. El rasterizador guarda un solo fragmento
+por píxel, así que las alas no dejan ver lo que hay detrás: la transparencia
+se imita oscureciéndolas un poco de frente y aclarándolas de canto. Una nave
+nueva usa un casco genérico hasta que se le asigne uno en `src/ships.rs`.
 
-![El relieve del adoquín](docs/bloques-3d.png)
+**Cómo crecen los planetas al acercarse.** El rasterizador es ortográfico:
+sin ayuda, un planeta se vería del mismo tamaño a cualquier distancia. En
+vuelo, cada objeto lleva su propia matriz de proyección (`SceneObject::projection`)
+que, en el espacio de la cámara, escala x e y por `focal / distancia`, con la
+distancia medida hasta el centro del objeto (`src/flight.rs`). Así crecen a la
+vez su tamaño y su separación del centro de la pantalla. Es perspectiva
+"débil": todo el objeto usa la distancia de su centro, lo que en una esfera
+casi no se distingue de la perspectiva completa y le ahorra al rasterizador
+recortar triángulos contra el plano cercano y corregir la interpolación.
+Antes de escalarlo, la misma matriz gira el objeto para verlo por la línea
+que va de la cámara a su centro. Sin ese giro todo se vería en la dirección a
+la que apunta la cámara, y los anillos de JupyterNotebook se abrían y
+cerraban con solo mover el mouse.
+Las órbitas y las estrellas del fondo usan la misma cuenta, pero punto por punto.
 
-El relieve viene del resource pack **Classic 3D**, que es puramente
-geométrico: de sus 1530 archivos, 1468 son modelos de bloque y apenas una
-docena son imágenes. No cambia cómo se ven los bloques, cambia qué son: cada
-modelo reemplaza el cubo liso por una caja de 16×16×16 con decenas de cajitas
-pegadas por fuera de cada cara.
+**Rendimiento.** Lo que más pesa en CPU es la cantidad de píxeles que cubre
+un planeta y lo caro que es su shader, no la matriz. Para que acercarse no
+hunda los cuadros por segundo, sin achicar nada:
 
-Eso es lo que un mapa de alturas nunca puede dar. El trazado por paralaje
-—que el proyecto también tiene, y que sigue usándose en los bloques que el
-pack no cubre— solo hunde hacia adentro: la silueta del cubo queda recta, y
-de canto un bloque sigue siendo un cuadrado perfecto. Las cajitas del pack
-sobresalen medio texel y le rompen el borde.
+- Lo que no se ve no se procesa: un cuerpo detrás de la cámara o fuera de la
+  pantalla no se transforma ni se rasteriza, la mitad de atrás de cada esfera
+  se descarta antes de rasterizar, y de un píxel tapado nunca se arma el
+  fragmento.
+- La rasterización corre en paralelo: la pantalla se corta en franjas de 8
+  filas que se reparten entre los núcleos (`Framebuffer::rasterize_bands`).
+- Un cuerpo que se ve con más de 160 píxeles de radio se sombrea grueso: se
+  calcula el shader en un píxel de cada 2×2 y el resto se interpola. Los
+  bordes y los detalles finos (donde las muestras difieren mucho, como las
+  grietas de Bocchi) se sombrean completos.
+- Los que se ven grandes cambian a una esfera más fina para que no se noten
+  las facetas de `sphere.obj`.
 
-Sale caro, así que se pagan solo las que se ven:
+Con un planeta llenando la pantalla, un cuadro pasó de 55–190 ms a 14–80 ms
+(Veridia es el más caro por su parallax).
 
-- de cada bloque se generan únicamente las cajitas de las caras que dan al
-  aire (un adoquín trae 253; destapado solo por arriba paga 67, enterrado
-  ninguna);
-- cada cajita se pinta con el texel del **bloque** que le toca, no con la
-  textura entera estirada sobre una cajita de medio texel de lado.
+## Laboratorio de shaders (`--shaders`)
 
-Los modelos se leen de `assets/models` con un lector de JSON propio
-(`src/json.rs`), porque buscar los campos con substrings iba a romperse el día
-que un modelo trajera una clave parecida.
-
-### Islas procedurales
-
-Cada isla es un blob de contorno irregular con su tapa, su quilla hundida
-hacia el centro como un cono invertido, las estalactitas que cuelgan de esa
-quilla y su propia altura base. La tapa pasa por cuatro pasos, y cada uno
-arregla algo que el anterior no puede dar solo:
-
-1. **Dominio deformado.** El ruido de Perlin a secas tiene curvas de nivel
-   redondas y parejas, y un terreno hecho así se lee enseguida como lomas de
-   algodón. Deformar el punto de muestreo con el propio campo las estira y
-   las dobla.
-2. **Curva de altura.** Escalar el ruido derecho reparte las alturas parejo, y
-   el mapa termina sin llanura y sin montaña: lomas de media altura de punta
-   a punta. La curva, en cambio, gasta medio rango del ruido en el primer
-   quinto de altura y de ahí sube en serio. Sus puntos de control están
-   elegidos contra cómo se reparte de verdad el fbm, que no es parejo: mide
-   −0,31 en el percentil 5, 0 en la mediana y 0,31 en el 95.
-3. **Crestas.** Ruido plegado sobre sí mismo, que deja filos en vez de cimas
-   redondas, pesado por la altura ya decidida: así la sierra se afila solo
-   donde hay sierra.
-4. **Erosión.** El ruido no tiene historia y deja agujas de una columna que
-   ningún derrumbe habría dejado en pie. Dos pasadas de promedio con las ocho
-   vecinas las tiran abajo y dejan en pie los acantilados.
-
-
-Los cuatro biomas leen el mismo campo con parámetros distintos: bosque con
-pradera y cordillera nevada, desierto casi todo llano con mesetas, nieve con
-lagunas congeladas, y una cantera de roca partida con vetas a la vista.
-
-### Elementos que emiten luz
-
-![Las lámparas marinas](docs/lamparas.png)
-
-En la isla de nieve hay un puñado de **lámparas marinas** —cuatro en las
-semillas que probé—, y son dos cosas a la vez:
-
-- **El bloque brilla.** Los materiales tienen un término de emisión que se
-  suma aparte del sombreado, así que no depende de que le llegue luz: es lo
-  que hace que se vea encendida aun en la sombra. Lo que emite sale con su
-  propia textura, así que se prenden los cristales y no el marco.
-- **Y alumbra lo que tiene al lado.** Cada lámpara registra una luz de verdad
-  en la escena, con sombras proyectadas como cualquier otra.
-
-Lo segundo es lo que cuesta: cada luz es un rayo de sombra por cada punto que
-se sombrea. Por eso las lámparas tienen **alcance finito**, a diferencia de
-las tres que hacen de sol y de cielo. El descarte por distancia se evalúa
-antes que el coseno y que el rayo de sombra, así que un punto que le queda
-lejos a la lámpara se resuelve con una resta: siete luces cuestan lo mismo
-que tres.
-
-La caída es `(1 − d/r)²` y no la cuadrática de la física. La cuadrática no
-llega a cero nunca, habría que cortarla en algún lado, y ese corte se ve como
-un círculo de luz con el borde marcado alrededor de cada lámpara.
-
-Una de las cuatro cae bajo la capa de hielo de una laguna. El hielo refracta,
-así que no cuenta como tapa para el rayo de sombra: el charco se prende entero
-desde abajo.
-
-## Lo demás
-
-### Materiales
-
-Los 58 tipos de bloque se agrupan por cómo reparten la luz **en la vida
-real**: tierra y arena no reflejan nada, la roca partida apenas, la piedra
-lisa y la terracota devuelven algo, y el oro, el hierro y el cobre son
-espejos. Los índices de refracción son los de verdad: agua 1,33 < vidrio
-1,52 < diamante 2,42.
-
-Los metales llevan además un `metallic` que tiñe con su color tanto el brillo
-como la imagen que devuelven. Es la diferencia física entre el oro y un
-plástico amarillo: en un dieléctrico la luz rebota en la superficie y sale
-con el color de la luz, en un metal se lleva puesto el color del metal. Por
-eso un espejo de oro devuelve el mundo dorado.
-
-Cada isla tiene un monumento con obsidiana, un metal o una gema y un remate
-de vidrio, puesto ahí justamente para que haya dónde ver reflexión y
-refracción.
-
-### Rendimiento
-
-- **BVH** sobre los cuerpos de la escena, construido una sola vez porque la
-  escena no cambia: orbitar la cámara no lo invalida.
-- **Trazado en paralelo** por tiles, con hilos de la biblioteca estándar.
-- Solo se generan los bloques con alguna cara al aire, y de cada uno solo las
-  cajitas de las caras destapadas.
-- Tres rebotes por rayo como máximo.
-
-### Estructura
-
-| Módulo | De qué se ocupa |
+| Tecla | Qué hace |
 |---|---|
-| `terrain.rs` | las islas, la tabla de bloques y qué modelo lleva cada uno |
-| `noise.rs` | Perlin con semilla, fbm, deformación del dominio y ruido plegado |
-| `model.rs`, `json.rs` | los modelos 3D del pack y el lector que los abre |
-| `texture.rs` | color, mapa normal, mapa de alturas y trazado del relieve |
-| `shading.rs` | Lambert, Phong, sombras, reflexión, refracción y emisión |
-| `bvh.rs`, `cube.rs`, `object.rs` | la geometría y cómo se la recorre |
-| `render.rs`, `camera.rs`, `framebuffer.rs` | la cámara y el cuadro |
-| `scene.rs`, `light.rs`, `material.rs`, `color.rs` | la escena y sus luces |
+| **Tab** / **Shift+Tab** | siguiente / anterior shader |
+| **1**–**7** | elegir un shader directamente |
+| **Flechas** | orbitar la cámara alrededor de la esfera |
+| **Z** / **X** | alejar / acercar |
+| **Q** / **E** | mover el sol alrededor de la esfera |
+| **Espacio** | pausar el tiempo |
+| **R** | volver al inicio |
+| **P** | guardar una captura del shader actual |
 
-## Créditos
+Arriba a la izquierda se ve el nombre del cuerpo celeste y su tipo. Ese
+texto no entra en las capturas.
 
-Nada de lo que hay en `assets` es original del proyecto. Está ahí solo para
-que el trabajo corra y se pueda evaluar; no se redistribuye por separado ni
-con ningún fin comercial.
+## Cómo está armado
 
-| Qué | De dónde |
+```
+vértices → vertex shader → ensamblaje → rasterización → z-buffer → fragment shader → framebuffer
+```
+
+- **Vertex shader** (`src/shaders/mod.rs`): la matriz de modelo lleva la
+  esfera a radio 1 en el origen, la de vista la mira desde la cámara orbital
+  y la de viewport la pasa a píxeles (proyección ortográfica).
+- **Rasterización** (`src/triangle.rs`): relleno baricéntrico, en paralelo
+  por franjas de filas. La prueba de profundidad se hace al momento y solo
+  del píxel que queda delante se interpolan la posición en el modelo, la
+  posición en el mundo y la normal.
+- **Z-buffer**: queda el fragmento más cercano de cada píxel, y el fragment
+  shader corre una sola vez por píxel visible, repartido entre todos los
+  núcleos (`Framebuffer::shade`). Los hilos se crean una sola vez
+  (`src/pool.rs`).
+- **Fragment shader**: arma un `Frag` con todo lo que se sabe del punto y
+  llama al shader elegido con Tab.
+- **Accesorios**: las lunas y los anillos son mallas adicionales que pasan
+  por la misma rasterización y prueba de profundidad del planeta; sus
+  transformaciones dependen del tiempo de la escena.
+
+La esfera no gira: lo que se mueve es la cámara. El sol queda fijo respecto
+a la esfera, así que al orbitar se ven el lado de día y el de noche. La
+normal se calcula desde la posición (en una esfera es la dirección desde el
+centro), por eso la luz se ve suave aunque la malla tenga pocos triángulos.
+
+## Cómo escribir un shader
+
+Un shader es una función `fn shade(f: &Frag) -> Vector3` en
+`src/shaders/`. Recibe el punto que se está pintando y devuelve su color
+como `Vector3`: x = rojo, y = verde, z = azul, de 0 a 1. Lo que pase de 1 se
+comprime hacia el blanco, útil para que una estrella brille.
+
+### Lo que trae `Frag`
+
+| | Qué es |
 |---|---|
-| `assets/blocks/<bloque>.png` | Texturas de bloque de **Minecraft: Java Edition 1.20.1**, de Mojang Studios / Microsoft, usadas según el [EULA de Minecraft](https://www.minecraft.net/es-es/eula) |
-| `assets/blocks/<bloque>_n.png` | Mapas normales de **Vanilla Normals Renewed** |
-| `assets/models/<bloque>.json` | Modelos de bloque de **Classic 3D** v2.0.0-A.9, de Fear57 |
+| `f.p` | punto de la esfera de radio 1, en coordenadas del modelo. Es la entrada de todos los patrones |
+| `f.normal` | normal en el mundo |
+| `f.to_sun` | dirección hacia el sol |
+| `f.to_viewer` | dirección hacia la cámara |
+| `f.light` | intensidad del sol en ese punto: 0 de noche, 1 de frente |
+| `f.time` | segundos desde que arrancó (Espacio lo pausa) |
+| `f.lit(color)` | el color con luz difusa básica (ambiente + sol) |
+| `f.shade(color, &material, normal)` | Lambert + Phong + emisión con un `Material` y la normal que se quiera |
 
-Los tres orígenes son archivos `.zip` (el `.jar` del juego también lo es): de
-ahí salen las entradas `assets/minecraft/textures/block/<nombre>.png` y
-`assets/minecraft/models/block/<nombre>.json`. De los 1468 modelos que trae el
-pack solo están los 23 que la escena usa, y cada uno es el modelo ya resuelto,
-el que contiene `elements` siguiendo la cadena de `parent`.
+### Herramientas (`src/shaders/kit.rs`)
 
-Qué bloques hacen falta lo dice la tabla `BlockKind::spec` de `terrain.rs`. Si
-llegara a faltar alguno, ese bloque cae en una textura dibujada con ruido en
-vez de tumbar el programa, y avisa por consola.
+| Función | Qué hace |
+|---|---|
+| `Vector3::new(1.0, 0.5, 0.0)`, `gray(v)` | colores (naranja, gris) |
+| `mix(a, b, t)` | `a` cuando t = 0, `b` cuando t = 1 |
+| `ramp(&[(0.0, a), (0.5, b), (1.0, c)], t)` | degradado por paradas |
+| `smoothstep(e0, e1, x)`, `step(borde, x)` | convertir un valor en máscara, suave o dura |
+| `wave(x)` | seno pasado a 0..1 |
+| `fract(x)` | 0..1 que se repite |
+| `noise(p)` | ruido OpenSimplex2, 0..1 |
+| `fbm(p, octavas)` | varias octavas de ruido: más detalle |
+| `ridged(p, octavas)` | como `fbm` pero con crestas finas y nítidas: venas, relámpagos |
+| `cellular(p)` | distancia al centro de la celda (Voronoi) |
+| `cell_edge(p)` | distancia al borde entre celdas: 0 sobre el borde |
+| `cell_value(p)` | un valor al azar por celda |
+| `latitude(p)`, `longitude(p)` | -1..1 de polo a polo, 0..1 alrededor |
+| `rotate_y(p, ángulo)`, `rotate(p, eje, ángulo)` | girar el patrón |
+| `rim(f, potencia)` | 0 de frente, 1 en el borde: halos, coronas, atmósferas |
+| `bump(f.normal, p, h, fuerza, altura)` | normal con relieve a partir de un campo de altura |
+| `Material::matte()`, `polished()`, `lacquer()`, `metal()`, `lamp(emisión)` | cómo responde a la luz |
+| `Material::new(Albedo::new(difuso, especular), brillo)` | un material a medida |
 
-Los bloques animados del juego (magma, farol de mar, prismarina) vienen como
-una tira vertical de cuadros; el cargador toma el primero, porque la escena no
-se mueve.
+Con vectores: `f.p * 4.0` sube la frecuencia de un patrón, `f.p + f.time * 0.3`
+lo desplaza con el tiempo y `f.p * Vector3::new(1.0, 8.0, 1.0)` lo estira.
+
+### Capas
+
+Una capa es una máscara de 0 a 1, un color y una forma de combinarlos:
+
+```rust
+use super::kit::*;
+
+pub fn shade(f: &Frag) -> Vector3 {
+    let mut color = Vector3::new(0.11, 0.14, 0.25);
+
+    // encima: mix
+    let franjas = wave(f.p.y * 12.0 + f.time);
+    color = mix(color, Vector3::new(0.36, 0.48, 0.84), franjas);
+
+    // sumar: brillos, emisión
+    let calor = fbm(f.p * 4.0, 4);
+    color = color + Vector3::new(1.0, 0.7, 0.28) * calor * 0.3;
+
+    // multiplicar: oscurecer, sombras
+    color = color * (0.6 + 0.4 * cellular(f.p * 6.0));
+
+    // la luz al final (una estrella puede saltársela)
+    f.lit(color)
+}
+```
+
+Para ver solo un patrón, devolverlo en gris: `return gray(franjas);`.
+
+`src/shaders/sandbox.rs` (**pruebas** en Tab) es un shader para jugar sin
+tocar los tres cuerpos.
+
+### Agregar otro shader
+
+1. Crear `src/shaders/mi_shader.rs` con `use super::kit::*;` y
+   `pub fn shade(f: &Frag) -> Vector3`.
+2. En `src/shaders/mod.rs`, agregar `mod mi_shader;` y una línea en
+   `SHADERS`: `name` es el tipo (y el nombre de la captura) y `body` el
+   nombre que se muestra en pantalla. Tab lo recorre solo.
+
+### Dónde engancha cada efecto
+
+| Efecto | Qué usar |
+|---|---|
+| Material animado | `f.time` dentro del patrón |
+| Día y noche | `f.light` como máscara (por ejemplo, algo visible solo donde es casi 0) |
+| Respuestas distintas a la luz | `f.shade` con un `Material` distinto según la región |
+| Nubes | otra máscara de ruido sobre `rotate_y(f.p, f.time * velocidad)` |
+| Tormenta o vórtice | girar `p` alrededor de un punto, más cerca más giro, antes de calcular las bandas |
+| Bump mapping | una normal nueva a partir de cómo cambia un campo de altura, pasada a `f.shade` |
+| Parallax | mover `p` según `f.to_viewer` y la altura antes de muestrear |
+| Sombras de nubes | la máscara de nubes evaluada en `p` corrido hacia `f.to_sun` |
+
+## Cuerpos celestes
+
+### Estrella: Lunan't
+
+![Estrella](assets/capturas/estrella.png)
+
+"Luna" + "n't": no es una luna, porque brilla sola. Es una estrella morada
+con venas de plasma lavanda que fluyen rápido sobre un fondo gris oscuro,
+y late.
+
+**Patrones y cómo se combinan.**
+
+1. `ridged(p, 5)`: un `fbm` de crestas. Cada octava es `1 - |ruido|`, así
+   que donde el ruido cruza por cero queda una cresta, y al elevarla al
+   cuadrado se angosta. Eso da venas con borde nítido en vez de las manchas
+   difuminadas de un `fbm` común. p gira (`SPIN`) y se desplaza con el
+   tiempo (`FLOW_SPEED`), así que las venas fluyen.
+2. `smoothstep(VEINS)` convierte las crestas en calor de 0 a 1, y un `ramp`
+   lo lleva de gris oscuro a morado y a lavanda. Los morados están en
+   escala 0–255, muy por encima de 1: la pantalla los comprime sin cambiar
+   el tono, así que apenas hay calor el color salta a morado saturado y el
+   gris solo queda donde el calor es 0.
+3. El borde de la esfera se oscurece un poco (`0.65 + 0.35 · √(normal · vista)`).
+4. Pulso: `1 + PULSE · sin(1.2 · t)`. Las venas lo reciben completo; el
+   fondo solo recibe la mitad que oscurece, así que en el pico no se aclara.
+5. No usa la luz del sol: todo es emisión.
+
+**Parámetros** (`src/shaders/star.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `SPIN` | velocidad de giro de la superficie (rad/s) |
+| `FLOW_SPEED` | qué tan rápido fluyen las venas |
+| `SCALE` | tamaño del plasma: más alto, venas más chicas y juntas |
+| `VEINS` | dónde empieza y termina el paso a morado: más cerrado, más fondo gris |
+| `BRIGHTNESS` | brillo total |
+| `PULSE` | cuánto late |
+| `DARK`, `PURPLE`, `PURPLE_HOT` | colores del fondo, del plasma y de las venas |
+
+### Planeta rocoso: Bocchi
+
+![Planeta rocoso](assets/capturas/planeta-rocoso.png)
+
+Un planeta *rock* rosado: casi todo el suelo es rosa, con algunos lagos
+celestes y picos y casquetes polares de plata. Las nubes lo tapan a ratos y de noche
+se le encienden grietas celestes.
+
+**Patrones y cómo se combinan.**
+
+1. `terrain`: `fbm` de 4 octavas, la altura del suelo. Debajo de
+   `SEA_LEVEL` hay agua (celeste, más oscura cuanto más honda, con espuma en
+   la costa); arriba, roca que va de rosa claro a malva según la altura.
+2. Plata: sobre `PEAK_LEVEL` y cerca de los polos (`ICE_LATITUDE`,
+   desplazada por la altura para que el borde del casquete no sea recto).
+3. Relieve: `bump` inclina la normal según la pendiente de `terrain`. La
+   altura se corta en `SEA_LEVEL`, así que el mar queda plano.
+4. Cada región responde distinto a la luz: agua con brillo de Phong
+   cerrado, roca mate y plata metálica (el brillo sale plateado).
+5. Nubes: otro `fbm`, estirado en vertical para que salgan alargadas y
+   girando a `CLOUD_SPEED`, distinto del giro del suelo (`SPIN`). Su sombra
+   es la misma máscara evaluada en el punto corrido hacia el sol.
+6. Noche: `cell_edge` dibuja grietas que solo brillan donde `f.light` es
+   casi 0.
+7. Un halo rosado en el borde con `rim`, más fuerte del lado del día.
+
+**Parámetros** (`src/shaders/rocky.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `SPIN` | velocidad de giro del suelo |
+| `TERRAIN_SCALE` | tamaño de los continentes |
+| `SEA_LEVEL` | cuánto mar hay |
+| `PEAK_LEVEL` | desde qué altura los picos son de plata |
+| `ICE_LATITUDE` | hasta dónde bajan los casquetes |
+| `BUMP` | fuerza del relieve |
+| `CLOUD_SCALE`, `CLOUD_COVER` | tamaño de las nubes y cuánto cubren |
+| `CLOUD_SPEED` | velocidad de las nubes |
+| `CLOUD_HEIGHT` | qué tan corrida queda la sombra de las nubes |
+| `CRACK_SCALE`, `NIGHT_GLOW` | tamaño e intensidad de las grietas de noche |
+| `CELESTE`, `SEA_DEEP`, `PINK`, `HOT_PINK`, `SILVER`, ... | paleta |
+
+### Gigante gaseoso: JupyterNotebook
+
+![Gigante gaseoso](assets/capturas/gigante-gaseoso.png)
+
+Un Júpiter cibernético pintado con la paleta Dracula, un tema de editor de
+código: franjas anchas de neón (verde, cyan, rosa y morado) separadas por
+líneas finas casi negras, que son los fondos del tema. Las franjas bajan,
+los colores van cambiando con el tiempo y unas vetas oscuras de nubes le dan
+la textura de gas.
+
+**Patrones y cómo se combinan.**
+
+1. `franjas = wave(y · BANDS + t · FALL_SPEED + remolino)³`: un seno de la
+   altura más el tiempo. Como el tiempo suma, cada valor queda cada vez más
+   abajo: las franjas bajan. Al elevarlo al cubo, solo se acerca a 1 en una
+   parte angosta de cada ciclo.
+2. Remolino: un `fbm` estirado en vertical que se suma dentro del seno y
+   ondula los bordes, para que parezcan gas.
+3. Color: `mix(neón, oscuro, franjas)`. Como `franjas` casi siempre está
+   cerca de 0, domina el neón y lo oscuro queda en líneas finas. Cada color
+   sale de `cycle`, que recorre su lista en círculo con un índice que
+   depende de la altura (cada franja tiene su color) y del tiempo
+   (`COLOR_SPEED`). El neón y lo oscuro avanzan a ritmos distintos, así que
+   las combinaciones no se repiten igual.
+4. Vetas: otro `fbm` más fino multiplica el color entre 0.4 y 1.2, y deja
+   nubes oscuras alargadas sobre el neón.
+5. `f.lit`: la superficie no emite, solo refleja la luz de las estrellas, así
+   que el lado de noche queda oscuro.
+6. Anillos de hielo, como los de Saturno. En el sistema solar el planeta tiene
+   el eje inclinado 27° (`axial_tilt` en `src/solar_system.rs`), fijo en el
+   espacio: a lo largo de la órbita las estrellas iluminan los anillos de
+   arriba o de abajo, y en los equinoccios les pegan de canto. Brillan con la
+   ley de Lommel-Seeliger, la de las superficies hechas de partículas: cuanto
+   más de canto se los mira, más brillan. Desde el lado sin sol solo pasa un
+   poco de luz, salvo a contraluz, donde el hielo la dispersa hacia adelante.
+   El planeta les proyecta su sombra: `planet_shadow` mira si el rayo hacia
+   el sol choca con él. Las franjas finas salen de un `fbm` de la distancia
+   al centro del planeta.
+
+**Parámetros** (`src/shaders/gas_giant.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `BANDS` | cuántas franjas hay |
+| `FALL_SPEED` | qué tan rápido bajan las franjas |
+| `TURBULENCE` | qué tan ondulados son los bordes |
+| `COLOR_SPEED` | qué tan rápido cambian los colores |
+| `LIGHT`, `DARK` | colores del neón y de las líneas oscuras (paleta Dracula) |
+| `RING_BANDS` | cuántas franjas tienen los anillos |
+| `RING_TRANSMISSION`, `RING_BACKLIT` | cuánta luz atraviesa los anillos, normal y a contraluz |
+
+### Planeta: Flora
+
+![Planeta Flora](assets/capturas/flora.png)
+
+Un planeta inspirado en una flor: células rosadas y durazno sobre un fondo
+ciruela, unidas por filamentos cálidos. Su superficie evoluciona y pulsa sin
+mover los vértices. No emite luz: solo se ve el lado que iluminan las
+estrellas.
+
+**Patrones y cómo se combinan.**
+
+1. `flow`: tres muestras de ruido con desplazamientos temporales diferentes
+deforman las coordenadas de entrada. La deformación cambia la forma de las
+células, no solamente su color.
+2. `cellular(q)` produce las zonas calientes alrededor de los centros de las
+celdas; `cell_edge(q)` genera una red de filamentos sobre sus bordes.
+3. Una onda de la altura, modulada por la deformación y el tiempo, agrega
+variaciones semejantes a pétalos. Se combina con las células para obtener
+el calor que selecciona los colores ciruela, rosa y durazno.
+4. Los filamentos mezclan el color base con un tono crema.
+5. Un pulso suave modifica el color y `f.lit` lo ilumina con la luz de las
+estrellas: el volumen lo da Lambert y de noche queda oscuro.
+
+**Parámetros** (`src/shaders/flora.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `CELL_SCALE` | frecuencia de las células: más alto, células más pequeñas |
+| `WARP_STRENGTH` | cuánto se deforman las células y sus filamentos |
+| `FLOW_SPEED` | velocidad de evolución del patrón |
+| `FILAMENT_STRENGTH` | intensidad de la mezcla de los filamentos cálidos |
+| `PLUM, ROSE, PEACH, CREAM` | paleta del fondo, zonas calientes y filamentos |
+
+### Planeta rocoso: Veridia
+
+![Planeta rocoso Veridia](assets/capturas/veridia.png)
+
+Un mundo de océanos azules y turquesa, vegetación verde, campos rosados,
+cordilleras violetas e hielo polar. Las nubes se desplazan sobre un terreno
+fijo. No emite luz: de noche queda oscuro.
+
+**Patrones y cómo se combinan.**
+
+1. `terrain`: un `fbm` de cuatro octavas, con coordenadas deformadas por ruido,
+   determina la altura. `SEA_LEVEL` separa océano y tierra con una transición
+   suave; otros umbrales seleccionan montañas e hielo.
+2. Un campo de humedad independiente distribuye campos florales rosados sobre
+   la vegetación. No se usa solamente la misma altura para todos los biomas.
+3. `parallax`: recorre capas de profundidad en la dirección tangencial de
+   `f.to_viewer` hasta cruzar el campo `1 - height`. El terreno se muestrea en
+   la coordenada desplazada: sus detalles cambian de posición aparente con
+   la cámara, sin mover vértices ni usar el tiempo para ese desplazamiento.
+4. `terrain_normal`: diferencias centrales de la altura en dos tangentes
+   inclinan la normal. Esa normal produce el relieve aparente al iluminar
+   la tierra; la máscara terrestre conserva el océano sin ese relieve.
+5. El océano usa un material con reflejo de Phong y la vegetación y roca usan
+   un material mate. Por eso las regiones responden de manera diferente a la luz.
+6. `cloud_mask`: otro campo de ruido gira a `CLOUD_SPEED`, independiente de
+   los continentes. `CLOUD_COVERAGE` ajusta cuánto cielo queda cubierto.
+7. `shell_point`: calcula dónde un rayo alcanza una altura esférica analítica.
+   Hacia la cámara se muestrea la nube visible; hacia el sol se muestrea la
+   nube que bloquea la luz. Ambas consultas usan la misma máscara, altura y
+   tiempo, de modo que las sombras corresponden a las nubes. No se agrega
+   una segunda malla.
+8. Las nubes se mezclan al final y se añade un halo azul suave en el borde.
+   Es luz de las estrellas dispersada por la atmósfera, así que una máscara
+   basada en `dot(normal, to_sun)` lo apaga poco después del terminador.
+
+**Parámetros** (`src/shaders/veridia.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `SEA_LEVEL`, `TERRAIN_SCALE` | proporción de océano y tamaño de los continentes |
+| `BUMP_STRENGTH` | fuerza del relieve de normales; 0 lo desactiva |
+| `PARALLAX_DEPTH` | profundidad aparente dependiente de la vista; 0 la desactiva |
+| `PARALLAX_STEPS` | cantidad de capas de búsqueda: más capas aumentan el trabajo por fragmento |
+| `CLOUD_COVERAGE` | cobertura: 0 despejado y 1 completamente cubierto |
+| `CLOUD_SPEED` | velocidad de las nubes respecto al terreno fijo |
+| `CLOUD_HEIGHT` | altura analítica que determina la separación entre nubes y sombras |
+| `SHADOW_STRENGTH` | intensidad de las sombras; 0 las desactiva sin quitar las nubes |
+| `OCEAN_SPECULAR` | fuerza del reflejo especular del océano |
+| `DEEP_BLUE`, `TURQUOISE`, `FOREST`, `MEADOW`, `BLOSSOM`, `MOUNTAIN`, `ICE`, `CLOUD` | paleta de las regiones y efectos |
+
+El parallax es una aproximación local: no modifica la silueta ni agrega
+geometría. El relieve y el desplazamiento usan el marco del modelo actual,
+con escala uniforme y sin rotación de la malla.
+
+### Gigante gaseoso: Iris
+
+![Gigante gaseoso Iris](assets/capturas/iris.png)
+
+Una atmósfera de bandas azules, verde menta, lavanda y rosado. Las corrientes
+se ondulan suavemente y una tormenta elíptica curva las franjas a su alrededor.
+
+**Patrones y cómo se combinan.**
+
+1. `vortex`: expresa el punto en una base local centrada en la tormenta. La
+   distancia elíptica controla un giro que disminuye suavemente hasta cero
+   fuera de la región. Una máscara evita repetir la tormenta en el lado opuesto.
+2. Las coordenadas deformadas se usan antes de evaluar las bandas. Así se
+   curvan las franjas existentes, en lugar de pintar un círculo de otro color.
+3. Un seno de la altura produce las bandas. Un `fbm` de baja frecuencia
+   ondula sus bordes y otro ruido más fino agrega detalle. El ruido se
+   desplaza lentamente con el tiempo.
+4. La máscara de bandas mezcla azul con menta y lavanda con rosa. Una
+   segunda onda mezcla esas dos paletas, manteniendo transiciones suaves.
+5. El detalle fino modula el color y `f.lit` aplica la iluminación mate del
+   proyecto. Iris no usa anillos ni geometría adicional.
+
+**Parámetros** (`src/shaders/iris.rs`):
+
+| Parámetro | Qué cambia |
+|---|---|
+| `BAND_FREQUENCY` | cantidad de bandas: más alto, bandas más finas |
+| `TURBULENCE` | cuánto se ondulan los bordes de las bandas |
+| `FLOW_SPEED` | velocidad de evolución del ruido atmosférico |
+| `VORTEX_STRENGTH` | intensidad del giro localizado; 0 desactiva la tormenta |
+| `VORTEX_WIDTH`, `VORTEX_HEIGHT` | ancho y alto de la región elíptica |
+| `BLUE`, `MINT`, `LAVENDER`, `PINK` | paleta de la atmósfera |
+
+## Efectos adicionales
+
+Las rutas de shader de esta tabla son relativas a `src/shaders/`. Cada efecto
+se solicita una sola vez por entrega, aunque aparezca en varios cuerpos.
+
+
+| Efecto | Cuerpo | Archivo y función | Evidencia | Cómo funciona | Parámetro y qué cambia |
+|---|---|---|---|---|---|
+| Material animado | Lunan't, Bocchi, JupyterNotebook, Flora e Iris | `star.rs`, `rocky.rs`, `gas_giant.rs`, `flora.rs`, `iris.rs` → `shade`; Flora también usa `flow` | [Video](assets/videos/shaders_demo.mp4), **00:00–00:05**, **00:16–00:20** y **00:25–00:32**: evolución de plasma, colores y células | El tiempo desplaza plasma, suelo o bandas; Flora deforma sus células y pulsa; Iris evoluciona su ruido. No se cuenta nuevamente el movimiento exigido para las nubes | `FLOW_SPEED`, `PULSE`, `SPIN`, `FALL_SPEED`, `COLOR_SPEED`; en Flora, `WARP_STRENGTH` cambia la deformación |
+| Día y noche | Bocchi | `rocky.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:08–00:10**: grietas luminosas en la región oscura | Grietas pesadas por `f.light`: solo aparecen de noche. Es el único detalle que brilla sin luz de las estrellas | `NIGHT_GLOW`: intensidad; `CRACK_SCALE`: tamaño |
+| Respuesta distinta a la luz por región | Bocchi y Veridia | `rocky.rs`, `veridia.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: vistas generales de las regiones; la diferencia especular/mate no queda aislada con claridad | Bocchi combina agua con Phong, roca mate y plata metálica; Veridia combina océano especular con tierra mate | `SEA_LEVEL`: distribución de regiones; `PEAK_LEVEL` en Bocchi; `OCEAN_SPECULAR` en Veridia |
+| Nubes | Bocchi y Veridia | `rocky.rs` → `clouds`; `veridia.rs` → `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: se aprecia la cubierta; los cambios de vista dificultan separar su movimiento del terreno | Máscaras de ruido con movimiento propio; Veridia permite variar la cobertura entre cielo despejado y cubierto | `CLOUD_SPEED`; `CLOUD_COVER` en Bocchi; `CLOUD_COVERAGE` en Veridia |
+| Sombras de nubes | Bocchi y Veridia | `rocky.rs` → `shade`; `veridia.rs` → `shell_point`, `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:33–00:40**: vista general; no demuestra de forma concluyente el desplazamiento de la sombra respecto a las nubes al variar solo la luz | Bocchi desplaza la consulta hacia el sol; Veridia intersecta la dirección solar con una altura analítica y consulta la misma máscara que las nubes visibles | `CLOUD_HEIGHT`: separación; `SHADOW_STRENGTH` en Veridia: oscuridad |
+| Bump mapping | Bocchi y Veridia | `kit.rs` → `bump`, `rocky.rs` → `terrain`; `veridia.rs` → `terrain_normal`, `height` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: superficie sombreada; no hay una comparación que aísle la contribución de las normales perturbadas | Diferencias finitas de altura inclinan la normal de iluminación sin cambiar los vértices; Veridia usa diferencias centrales | `BUMP` en Bocchi; `BUMP_STRENGTH` en Veridia: fuerza del relieve |
+| Tormenta o vórtice localizado | Iris | `iris.rs` → `vortex`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:43–00:45**: las bandas se curvan alrededor de una región localizada; [captura](assets/capturas/iris.png) | Una rotación local, limitada por distancia elíptica, deforma las coordenadas antes de generar las bandas | `VORTEX_STRENGTH`: intensidad; `VORTEX_WIDTH`, `VORTEX_HEIGHT`: extensión |
+| Parallax dependiente de la vista | Veridia | `veridia.rs` → `parallax`, `height`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:33–00:40**: cambia el punto de vista, pero no permite distinguir inequívocamente parallax de movimiento normal de cámara y animación | Marcha por capas hasta cruzar el campo de altura; desplaza el muestreo según la vista y sugiere profundidad sin cambiar la malla | `PARALLAX_DEPTH`: profundidad; `PARALLAX_STEPS`: pasos de búsqueda |
+
+Los videos se pueden grabar con **Win + Alt + R** (Xbox Game Bar) con la
+ventana enfocada.

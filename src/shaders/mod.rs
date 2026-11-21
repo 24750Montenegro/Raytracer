@@ -1,0 +1,173 @@
+use raylib::prelude::*;
+
+use crate::color::Rgb;
+use crate::fragment::Fragment;
+use crate::material::Material;
+use crate::shading::{self, SurfacePoint};
+use crate::vertex::Vertex;
+use crate::Uniforms;
+
+pub mod kit;
+pub mod ship;
+
+mod gas_giant;
+mod rocky;
+mod sandbox;
+mod star;
+mod flora;
+mod iris;
+mod veridia;
+
+pub struct Shader {
+    pub name: &'static str,
+    /// Nombre del cuerpo celeste, el que se muestra en pantalla.
+    pub body: &'static str,
+    pub shade: fn(&Frag) -> Vector3,
+    pub accessories: fn(f32) -> Vec<Accessory>,
+}
+
+pub struct Accessory {
+    pub vertices: &'static [Vertex],
+    pub model_matrix: Matrix,
+    pub shade: fn(&Frag) -> Vector3,
+    /// Una luna es una esfera; un anillo es plano y trae la normal en la malla.
+    pub normals: Normals,
+}
+
+/// Lo que recorre Tab, en orden. Un shader nuevo se agrega aca.
+pub const SHADERS: &[Shader] = &[
+    Shader { name: "estrella", body: "Lunan't", shade: star::shade, accessories: no_accessories },
+    Shader { name: "planeta rocoso", body: "Bocchi", shade: rocky::shade, accessories: rocky::accessories },
+    Shader { name: "gigante gaseoso", body: "JupyterNotebook", shade: gas_giant::shade, accessories: gas_giant::accessories },
+    Shader { name: "pruebas", body: "Sandbox", shade: sandbox::shade, accessories: no_accessories },
+    Shader { name: "flora", body: "Flora", shade: flora::shade, accessories: no_accessories },
+    Shader { name: "veridia", body: "Veridia", shade: veridia::shade, accessories: no_accessories },
+    Shader { name: "iris", body: "Iris", shade: iris::shade, accessories: no_accessories },
+];
+
+fn no_accessories(_: f32) -> Vec<Accessory> {
+    Vec::new()
+}
+
+/// Todo lo que un shader sabe del punto que esta pintando.
+pub struct Frag<'a> {
+    /// Punto de la esfera de radio 1, en coordenadas del modelo: los
+    /// patrones calculados con p se quedan pegados a la esfera.
+    pub p: Vector3,
+    pub normal: Vector3,
+    pub to_sun: Vector3,
+    pub to_viewer: Vector3,
+    /// Lambert del sol con la normal de la esfera: 0 de noche, 1 de frente.
+    pub light: f32,
+    /// Segundos desde que arranco el programa (Espacio lo pausa).
+    pub time: f32,
+    /// El punto en coordenadas del mundo.
+    pub point: Vector3,
+    /// Donde queda en el mundo el origen del modelo: para un anillo, el
+    /// centro de su planeta.
+    pub center: Vector3,
+    /// Cuanto mide en el mundo una unidad del modelo: para un anillo, el
+    /// radio de su planeta.
+    pub size: f32,
+    uniforms: &'a Uniforms,
+}
+
+impl Frag<'_> {
+    /// Iluminacion difusa basica: ambiente mas el sol.
+    pub fn lit(&self, base: Vector3) -> Vector3 {
+        self.shade(base, &Material::matte(), self.normal)
+    }
+
+    /// Ambiente, Lambert, Phong y emision del material, con la normal que se
+    /// le pase (la de la esfera u otra calculada por el shader).
+    pub fn shade(&self, base: Vector3, material: &Material, normal: Vector3) -> Vector3 {
+        let surface = SurfacePoint {
+            point: self.point,
+            normal,
+            view_dir: self.to_viewer,
+        };
+        shading::shade(
+            std::slice::from_ref(&self.uniforms.sun),
+            self.uniforms.ambient,
+            material,
+            Rgb::from_vector(base),
+            &surface,
+            shading::no_shadows,
+        )
+        .to_vector()
+    }
+}
+
+/// Matriz por vector. raylib guarda por columnas, asi que la primera fila
+/// de la matriz es m0, m4, m8, m12. w = 1 para puntos, w = 0 para
+/// direcciones (la traslacion no las mueve).
+pub fn transform(matrix: &Matrix, v: Vector3, w: f32) -> Vector3 {
+    Vector3::new(
+        matrix.m0 * v.x + matrix.m4 * v.y + matrix.m8 * v.z + matrix.m12 * w,
+        matrix.m1 * v.x + matrix.m5 * v.y + matrix.m9 * v.z + matrix.m13 * w,
+        matrix.m2 * v.x + matrix.m6 * v.y + matrix.m10 * v.z + matrix.m14 * w,
+    )
+}
+
+/// De donde sale la normal de cada fragmento.
+#[derive(Clone, Copy)]
+pub enum Normals {
+    /// La direccion desde el centro: en una esfera sale suave aunque la malla
+    /// tenga pocos triangulos.
+    Sphere,
+    /// Las normales del OBJ interpoladas, para mallas que no son esferas.
+    Mesh,
+}
+
+/// `to_screen` es vista, proyeccion y viewport ya multiplicadas: una sola
+/// matriz por vertice en vez de tres.
+pub fn vertex_shader_with_matrix(
+    vertex: &Vertex,
+    model_matrix: &Matrix,
+    to_screen: &Matrix,
+) -> Vertex {
+    let world = transform(model_matrix, vertex.position, 1.0);
+    let screen = transform(to_screen, world, 1.0);
+
+    Vertex {
+        world_position: world,
+        transformed_position: screen,
+        ..vertex.clone()
+    }
+}
+
+pub fn fragment_shader_with(
+    fragment: &Fragment,
+    uniforms: &Uniforms,
+    model_matrix: &Matrix,
+    shade: fn(&Frag) -> Vector3,
+    normals: Normals,
+    to_viewer: Vector3,
+) -> Vector3 {
+    let (p, normal) = match normals {
+        Normals::Sphere => {
+            let p = fragment.object_position.normalized();
+            (p, transform(model_matrix, p, 0.0).normalized())
+        }
+        Normals::Mesh => (
+            fragment.object_position,
+            transform(model_matrix, fragment.normal, 0.0).normalized(),
+        ),
+    };
+    let (to_sun, _) = uniforms.sun.direction_from(fragment.world_position);
+
+    let frag = Frag {
+        p,
+        normal,
+        to_sun,
+        to_viewer,
+        light: normal.dot(to_sun).max(0.0),
+        time: uniforms.time,
+        point: fragment.world_position,
+        center: transform(model_matrix, Vector3::zero(), 1.0),
+        size: transform(model_matrix, Vector3::new(1.0, 0.0, 0.0), 0.0).length(),
+        uniforms,
+    };
+
+    shade(&frag)
+}
