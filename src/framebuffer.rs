@@ -8,6 +8,8 @@ pub struct Framebuffer {
     /// Pixeles en RAM, RGBA8 plano (4 bytes por pixel). Escribir aca es solo
     /// memoria: no cruza el FFI de raylib como lo hacia Image::draw_pixel.
     pixels: Vec<u8>,
+    /// Índices y colores de las estrellas de fondo, calculados una sola vez.
+    starfield: Vec<(usize, [u8; 3])>,
     /// Profundidad de cada pixel, en unidades del mundo.
     depth: Vec<f32>,
     background_color: Vector3,
@@ -18,10 +20,23 @@ pub struct Framebuffer {
 impl Framebuffer {
     pub fn new(width: u32, height: u32) -> Self {
         let size = width as usize * height as usize;
+        let starfield = (0..size)
+            .filter_map(|index| {
+                let hash = star_hash(index);
+                if hash % 900 != 0 { return None; }
+                let brightness = 85 + ((hash >> 24) as u8 % 150);
+                Some((index, [
+                    brightness.saturating_sub(8),
+                    brightness.saturating_sub(3),
+                    brightness,
+                ]))
+            })
+            .collect();
         Framebuffer {
             width,
             height,
             pixels: vec![0; size * 4],
+            starfield,
             depth: vec![f32::INFINITY; size],
             background_color: Vector3::new(0.0, 0.0, 0.0),
             texture: None,
@@ -45,6 +60,41 @@ impl Framebuffer {
 
         }
         self.depth.fill(f32::INFINITY);
+    }
+
+    /// Limpia el framebuffer y dibuja un campo estelar determinista en CPU.
+    /// Usar el mismo patrón en cada cuadro evita que las estrellas titilen.
+    pub fn clear_with_starfield(&mut self) {
+        self.clear();
+        for (index, [red, green, blue]) in &self.starfield {
+            let offset = *index * 4;
+            self.pixels[offset..offset + 4].copy_from_slice(&[*red, *green, *blue, 255]);
+        }
+    }
+
+    /// Añade una aureola radial aditiva alrededor de una coordenada de
+    /// pantalla. Se usa para el brillo estelar sin recurrir a shaders GPU.
+    pub fn add_glow(&mut self, center_x: i32, center_y: i32, radius: f32, color: Color, strength: f32) {
+        let radius = radius.max(1.0);
+        let extent = radius.ceil() as i32;
+        let min_x = (center_x - extent).max(0);
+        let max_x = (center_x + extent).min(self.width as i32 - 1);
+        let min_y = (center_y - extent).max(0);
+        let max_y = (center_y + extent).min(self.height as i32 - 1);
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = (x - center_x) as f32 / radius;
+                let dy = (y - center_y) as f32 / radius;
+                let distance_squared = dx * dx + dy * dy;
+                if distance_squared > 1.0 { continue; }
+                let falloff = (-4.5 * distance_squared).exp() * strength;
+                let index = (y as usize * self.width as usize + x as usize) * 4;
+                self.pixels[index] = (self.pixels[index] as f32 + color.r as f32 * falloff).min(255.0) as u8;
+                self.pixels[index + 1] = (self.pixels[index + 1] as f32 + color.g as f32 * falloff).min(255.0) as u8;
+                self.pixels[index + 2] = (self.pixels[index + 2] as f32 + color.b as f32 * falloff).min(255.0) as u8;
+            }
+        }
     }
 
     
@@ -150,4 +200,13 @@ impl Framebuffer {
 /// Convierte un float en [0,1] a un byte en [0,255].
 fn to_byte(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0) as u8
+}
+
+fn star_hash(index: usize) -> u32 {
+    let mut hash = (index as u32).wrapping_add(0x9E37_79B9);
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x7FEB_352D);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x846C_A68B);
+    hash ^ (hash >> 16)
 }
