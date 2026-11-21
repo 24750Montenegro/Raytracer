@@ -43,17 +43,18 @@ const MAX_PITCH: f32 = 1.3;
 const MAX_ROLL: f32 = 0.6;
 const ROLL_STIFFNESS: f32 = 4.0;
 
-const SHIP_SIZE: f32 = 0.15;
+/// Radio de la nave. Un planeta mide entre 6 y 9 veces esto.
+const SHIP_SIZE: f32 = 0.09;
 /// Lo mas cerca que la nave puede pasar de la superficie de un cuerpo.
-const CLEARANCE: f32 = 0.25;
+const CLEARANCE: f32 = 0.15;
 /// Las lunas y anillos de un planeta llegan hasta aca, en radios del planeta.
 const BODY_EXTENT: f32 = 3.0;
 
-const CHASE_DISTANCE: f32 = 0.9;
-const CHASE_HEIGHT: f32 = 0.36;
+const CHASE_DISTANCE: f32 = 0.55;
+const CHASE_HEIGHT: f32 = 0.22;
 /// La camara mira a un punto delante de la nave: asi la nave queda en la
 /// parte de abajo de la pantalla y se ve hacia donde va.
-const LOOK_AHEAD: f32 = 1.6;
+const LOOK_AHEAD: f32 = 1.0;
 /// Que tan rapido alcanza la camara su lugar detras de la nave.
 const CHASE_STIFFNESS: f32 = 5.0;
 
