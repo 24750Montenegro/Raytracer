@@ -1,4 +1,4 @@
-# Laboratorio: planetas y estrellas con shaders
+# Proyecto 3: Space Travel
 
 Rasterizador por software escrito en Rust: todo se dibuja en CPU. La misma
 esfera (`assets/models/sphere.obj`, 192 triángulos) se pinta con distintos
