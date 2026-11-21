@@ -133,6 +133,7 @@ pub fn fragment_shader_with(
     model_matrix: &Matrix,
     shade: fn(&Frag) -> Vector3,
     normals: Normals,
+    to_viewer: Vector3,
 ) -> Vector3 {
     let (p, normal) = match normals {
         Normals::Sphere => {
@@ -150,7 +151,7 @@ pub fn fragment_shader_with(
         p,
         normal,
         to_sun,
-        to_viewer: uniforms.to_viewer,
+        to_viewer,
         light: normal.dot(to_sun).max(0.0),
         time: uniforms.time,
         point: fragment.world_position,

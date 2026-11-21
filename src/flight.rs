@@ -209,11 +209,20 @@ impl Flight {
             };
             let (mesh, unit_sphere) = if body.radius * at.scale > DETAIL_RADIUS { &fine } else { &coarse };
             let model_matrix = multiply(&body.model_matrix, unit_sphere);
-            objects.push(SceneObject { projection: at.matrix(), ..SceneObject::new(mesh, model_matrix, body.shader) });
-            // lunas y anillos usan la escala de su planeta, para no separarse de el
+            let to_viewer = Some((self.eye - body.center).normalized());
+            objects.push(SceneObject {
+                projection: at.matrix(),
+                to_viewer,
+                ..SceneObject::new(mesh, model_matrix, body.shader)
+            });
+            // lunas y anillos se ven como su planeta, para no separarse de el
             for accessory in &body.accessories {
                 let model_matrix = accessory.model_matrix.clone();
-                objects.push(SceneObject { projection: at.matrix(), ..SceneObject::new(accessory.vertices, model_matrix, accessory.shade) });
+                objects.push(SceneObject {
+                    projection: at.matrix(),
+                    to_viewer,
+                    ..SceneObject::new(accessory.vertices, model_matrix, accessory.shade)
+                });
             }
         }
         let ship_at = project(&view, self.position);
@@ -221,6 +230,7 @@ impl Flight {
             objects.push(SceneObject {
                 normals: Normals::Mesh,
                 projection: at.matrix(),
+                to_viewer: Some((self.eye - self.position).normalized()),
                 ..SceneObject::new(&ship.vertices, self.ship_matrix(ship), ship::shade)
             });
         }
@@ -324,6 +334,8 @@ impl Flight {
 /// Un punto visto por la camara: donde cae en pantalla y cuanto se agranda
 /// un objeto centrado ahi.
 struct Projected {
+    /// El punto en coordenadas de la camara.
+    center: Vector3,
     x: f32,
     y: f32,
     /// focal / distancia: pixeles por unidad del mundo a esa distancia.
@@ -331,16 +343,24 @@ struct Projected {
 }
 
 impl Projected {
-    /// La proyeccion del objeto: en el espacio de la camara escala x e y por
-    /// focal / distancia, asi que al acercarse crecen tanto su tamano como su
-    /// separacion del centro de la pantalla. La z queda igual para que la
-    /// prueba de profundidad siga ordenando por la distancia real.
+    /// La proyeccion del objeto, en el espacio de la camara. Primero lo gira
+    /// para mirarlo por la linea que va de la camara a su centro: sin ese giro
+    /// todo se veria en la direccion a la que apunta la camara, y un anillo
+    /// cambiaria de forma con solo girar la camara en el lugar. Despues lo
+    /// agranda por focal / distancia, asi que al acercarse crecen tanto su
+    /// tamano como su separacion del centro de la pantalla, y lo deja a su
+    /// distancia real para que la prueba de profundidad siga ordenando bien.
     fn matrix(&self) -> Matrix {
-        let s = self.scale;
+        let (c, s) = (self.center, self.scale);
+        // ejes de esa linea de vista; `back` va del objeto hacia la camara y
+        // nunca es vertical porque el objeto esta delante de la camara
+        let back = (-c).normalized();
+        let right = Vector3::new(0.0, 1.0, 0.0).cross(back).normalized();
+        let up = back.cross(right);
         new_matrix4([
-            [s, 0.0, 0.0, 0.0],
-            [0.0, s, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
+            [s * right.x, s * right.y, s * right.z, s * (c.x - right.dot(c))],
+            [s * up.x, s * up.y, s * up.z, s * (c.y - up.dot(c))],
+            [back.x, back.y, back.z, c.z - back.dot(c)],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
@@ -362,6 +382,7 @@ fn project(view: &Matrix, point: Vector3) -> Option<Projected> {
     }
     let scale = focal() / distance;
     Some(Projected {
+        center: at,
         x: WIDTH as f32 / 2.0 + at.x * scale,
         y: HEIGHT as f32 / 2.0 - at.y * scale,
         scale,

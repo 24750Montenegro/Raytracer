@@ -87,6 +87,9 @@ struct SceneObject<'a> {
     /// agranda el objeto segun lo cerca que este; en los demas modos es la
     /// identidad.
     projection: Matrix,
+    /// Desde donde se mira este objeto, si no es `Uniforms::to_viewer`. En
+    /// vuelo cada objeto se ve por la linea que lo une con la camara.
+    to_viewer: Option<Vector3>,
 }
 
 impl<'a> SceneObject<'a> {
@@ -97,6 +100,7 @@ impl<'a> SceneObject<'a> {
             shade,
             normals: Normals::Sphere,
             projection: Matrix::identity(),
+            to_viewer: None,
         }
     }
 }
@@ -214,6 +218,7 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
                 &object.model_matrix,
                 object.shade,
                 object.normals,
+                object.to_viewer.unwrap_or(uniforms.to_viewer),
             ))
             .to_display()
         })
