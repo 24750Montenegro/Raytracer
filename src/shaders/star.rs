@@ -1,6 +1,6 @@
 use super::kit::*;
 
-const SPIN: f32 = 0.03;
+const SPIN: f32 = 0.90;
 const FLOW_SPEED: f32 = 0.40;
 const SCALE: f32 = 2.0;
 const VEINS: (f32, f32) = (0.25, 0.85);
