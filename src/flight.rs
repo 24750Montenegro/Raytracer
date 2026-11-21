@@ -56,7 +56,7 @@ const CHASE_HEIGHT: f32 = 0.085;
 /// La camara mira a un punto delante de la nave: asi la nave queda en la
 /// parte de abajo de la pantalla y se ve hacia donde va.
 const LOOK_AHEAD: f32 = 0.4;
-/// Que tan rapido alcanza la camara su lugar detras de la nave.
+/// Que tan rapido se pone la camara detras de la nave cuando esta gira.
 const CHASE_STIFFNESS: f32 = 5.0;
 
 const START: Vector3 = Vector3::new(0.0, 1.6, 19.0);
@@ -131,8 +131,11 @@ pub struct Flight {
     roll: f32,
     speed: f32,
     aim: Vector2,
-    /// Donde esta la camara: persigue su lugar detras de la nave con un poco
-    /// de retraso, que es lo que hace que la nave se vea girar.
+    /// Desde donde mira la camara: sigue al frente de la nave con un poco de
+    /// retraso, que es lo que hace que la nave se vea girar. Se suaviza la
+    /// direccion y no la posicion: una camara que persigue a la nave queda
+    /// mas lejos cuanto mas rapido va, y a toda velocidad la nave se perdia.
+    chase_forward: Vector3,
     eye: Vector3,
     time: f32,
     stars: Vec<BodyPose>,
@@ -149,11 +152,13 @@ impl Flight {
             roll: 0.0,
             speed: 0.0,
             aim: Vector2::zero(),
+            chase_forward: Vector3::zero(),
             eye: START,
             time: 0.0,
             stars: solar_system::star_poses(0.0),
             planets: solar_system::planet_poses(0.0),
         };
+        flight.chase_forward = flight.basis().2;
         flight.eye = flight.chase_point();
         flight
     }
@@ -183,8 +188,9 @@ impl Flight {
         self.planets = solar_system::planet_poses(self.time);
         self.position = self.keep_clear(self.position, CLEARANCE);
 
-        let target = self.chase_point();
-        self.eye = self.keep_clear(self.eye + (target - self.eye) * follow(CHASE_STIFFNESS, dt), NEAR);
+        let blend = follow(CHASE_STIFFNESS, dt);
+        self.chase_forward = (self.chase_forward + (forward - self.chase_forward) * blend).normalized();
+        self.eye = self.keep_clear(self.chase_point(), NEAR);
     }
 
     pub fn time(&self) -> f32 {
@@ -312,10 +318,10 @@ impl Flight {
         (right, right.cross(forward), forward)
     }
 
-    /// Detras y un poco arriba de la nave: donde quiere estar la camara.
+    /// Detras y un poco arriba de la nave: donde va la camara.
     fn chase_point(&self) -> Vector3 {
-        let (_, up, forward) = self.basis();
-        self.position - forward * CHASE_DISTANCE + up * CHASE_HEIGHT
+        let (_, up, _) = self.basis();
+        self.position - self.chase_forward * CHASE_DISTANCE + up * CHASE_HEIGHT
     }
 
     fn ship_matrix(&self, ship: &Ship) -> Matrix {
