@@ -1,4 +1,4 @@
-//! Veridia: océanos azules, vegetación, campos rosados y bioluminiscencia.
+//! Veridia: océanos azules, vegetación y campos rosados.
 //! Una sola malla: profundidad, relieve, nubes y sombras se calculan aquí.
 use super::kit::*;
 
@@ -11,7 +11,6 @@ const CLOUD_COVERAGE: f32 = 0.44; // 0 = despejado; 1 = cubierto.
 const CLOUD_SPEED: f32 = 0.045;
 const CLOUD_HEIGHT: f32 = 0.08;
 const SHADOW_STRENGTH: f32 = 0.58; // 0 conserva nubes pero quita sombras.
-const NIGHT_GLOW: f32 = 0.7;
 const OCEAN_SPECULAR: f32 = 0.30;
 
 const DEEP_BLUE: Vector3 = Vector3::new(0.025, 0.10, 0.30);
@@ -22,7 +21,6 @@ const BLOSSOM: Vector3 = Vector3::new(0.80, 0.36, 0.59);
 const MOUNTAIN: Vector3 = Vector3::new(0.48, 0.35, 0.62);
 const ICE: Vector3 = Vector3::new(0.82, 0.91, 0.94);
 const CLOUD: Vector3 = Vector3::new(0.89, 0.85, 0.97);
-const GLOW: Vector3 = Vector3::new(0.31, 0.94, 0.68);
 
 fn terrain(p: Vector3) -> f32 {
     let warp = Vector3::new(
@@ -133,11 +131,11 @@ pub fn shade(f: &Frag) -> Vector3 {
     let signed_light = f.normal.dot(f.to_sun);
     color = color * (1.0 - SHADOW_STRENGTH * shadow * smoothstep(0.0, 0.15, signed_light));
 
-    let night = 1.0 - smoothstep(-0.20, 0.12, signed_light);
-    let veins = 1.0 - smoothstep(0.015, 0.07, cell_edge(p * 22.0));
-    color = color + GLOW * veins * land * night * NIGHT_GLOW;
     color = mix(color, f.lit(CLOUD), cloud * 0.90);
-    color + Vector3::new(0.22, 0.39, 0.70) * rim(f, 3.5) * 0.11
+    // el halo es luz de las estrellas dispersada por la atmosfera: se apaga
+    // poco despues del terminador
+    let daylight = smoothstep(-0.15, 0.35, signed_light);
+    color + Vector3::new(0.22, 0.39, 0.70) * rim(f, 3.5) * 0.11 * daylight
 }
 
 #[cfg(test)]

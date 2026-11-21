@@ -7,7 +7,6 @@ const BANDS: f32 = 12.0;
 const FALL_SPEED: f32 = 0.80;
 const TURBULENCE: f32 = 0.32;
 const COLOR_SPEED: f32 = 0.90;
-const GLOW: f32 = 1.0;
 const RING_COLOR: Vector3 = Vector3::new(0.96, 0.98, 1.0);
 
 static INNER_RING: LazyLock<Vec<Vertex>> = LazyLock::new(|| ring_mesh(1.18, 1.31, 128));
@@ -49,7 +48,8 @@ pub fn shade(f: &Frag) -> Vector3 {
     let vetas = fbm(f.p * Vector3::new(4.0, 20.0, 4.0), 2);
     color = color * (0.4 + 0.8 * vetas);
 
-    f.shade(color, &Material::lamp(GLOW), f.normal)
+    // no emite: solo las estrellas dan luz, asi que de noche queda oscuro
+    f.lit(color)
 }
 
 pub fn accessories(time: f32) -> Vec<Accessory> {
@@ -75,5 +75,5 @@ fn shade_ring(f: &Frag) -> Vector3 {
     } else {
         Vector3::new(0.0, -1.0, 0.0)
     };
-    f.shade(RING_COLOR, &Material::lamp(0.12), normal)
+    f.shade(RING_COLOR, &Material::matte(), normal)
 }

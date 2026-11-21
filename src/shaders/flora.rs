@@ -1,4 +1,4 @@
-//! Flora: una estrella emisiva de células, pétalos y filamentos.
+//! Flora: un planeta de células, pétalos y filamentos.
 //! El dominio se deforma con tiempo; no gira ni altera la malla.
 use super::kit::*;
 
@@ -33,11 +33,10 @@ pub fn shade(f: &Frag) -> Vector3 {
     let base = ramp(&[(0.0, PLUM), (0.45, ROSE), (1.0, PEACH)], heat);
     let color = mix(base, CREAM, filaments * FILAMENT_STRENGTH);
 
-    // Emisión independiente del sol. El borde da volumen sin Lambert.
-    let facing = f.normal.dot(f.to_viewer).max(0.0);
-    let limb = 0.72 + 0.28 * facing.sqrt();
+    // No emite: el color pulsa, pero solo se ve donde le llega la luz de
+    // las estrellas.
     let pulse = 0.94 + 0.06 * (f.time * 1.4 + heat * 5.0).sin();
-    color * limb * pulse
+    f.lit(color * pulse)
 }
 
 #[cfg(test)]

@@ -311,9 +311,8 @@ la textura de gas.
    las combinaciones no se repiten igual.
 4. Vetas: otro `fbm` más fino multiplica el color entre 0.4 y 1.2, y deja
    nubes oscuras alargadas sobre el neón.
-5. `Material::lamp(GLOW)`: además de la luz del sol, la superficie emite su
-   propio color, así que el neón brilla también del lado de noche. Las
-   líneas oscuras casi no emiten.
+5. `f.lit`: la superficie no emite, solo refleja la luz de las estrellas, así
+   que el lado de noche queda oscuro. Los anillos tampoco emiten.
 
 **Parámetros** (`src/shaders/gas_giant.rs`):
 
@@ -323,16 +322,16 @@ la textura de gas.
 | `FALL_SPEED` | qué tan rápido bajan las franjas |
 | `TURBULENCE` | qué tan ondulados son los bordes |
 | `COLOR_SPEED` | qué tan rápido cambian los colores |
-| `GLOW` | cuánto brilla solo: más alto, neón más vivo, pero las líneas oscuras se aclaran |
 | `LIGHT`, `DARK` | colores del neón y de las líneas oscuras (paleta Dracula) |
 
-### Estrella: Flora
+### Planeta: Flora
 
-![Estrella Flora](assets/capturas/flora.png)
+![Planeta Flora](assets/capturas/flora.png)
 
-Una estrella inspirada en una flor: células rosadas y durazno sobre un fondo
+Un planeta inspirado en una flor: células rosadas y durazno sobre un fondo
 ciruela, unidas por filamentos cálidos. Su superficie evoluciona y pulsa sin
-mover los vértices ni depender de la luz del sol.
+mover los vértices. No emite luz: solo se ve el lado que iluminan las
+estrellas.
 
 **Patrones y cómo se combinan.**
 
@@ -344,10 +343,9 @@ celdas; `cell_edge(q)` genera una red de filamentos sobre sus bordes.
 3. Una onda de la altura, modulada por la deformación y el tiempo, agrega
 variaciones semejantes a pétalos. Se combina con las células para obtener
 el calor que selecciona los colores ciruela, rosa y durazno.
-4. Los filamentos mezclan el color base con un tono crema. El borde de la
-esfera se oscurece según la dirección de vista para dar sensación de volumen.
-5. Un pulso suave modifica la intensidad. Todo el color es emisivo: mover
-el sol no apaga la estrella.
+4. Los filamentos mezclan el color base con un tono crema.
+5. Un pulso suave modifica el color y `f.lit` lo ilumina con la luz de las
+estrellas: el volumen lo da Lambert y de noche queda oscuro.
 
 **Parámetros** (`src/shaders/flora.rs`):
 
@@ -365,7 +363,7 @@ el sol no apaga la estrella.
 
 Un mundo de océanos azules y turquesa, vegetación verde, campos rosados,
 cordilleras violetas e hielo polar. Las nubes se desplazan sobre un terreno
-fijo y, de noche, se ilumina una red de filamentos verdes en los continentes.
+fijo. No emite luz: de noche queda oscuro.
 
 **Patrones y cómo se combinan.**
 
@@ -390,9 +388,9 @@ fijo y, de noche, se ilumina una red de filamentos verdes en los continentes.
    nube que bloquea la luz. Ambas consultas usan la misma máscara, altura y
    tiempo, de modo que las sombras corresponden a las nubes. No se agrega
    una segunda malla.
-8. `cell_edge` dibuja los filamentos bioluminiscentes. Una máscara basada en
-   `dot(normal, to_sun)` los activa en el lado nocturno y los desvanece al
-   amanecer. Las nubes se mezclan después y se añade un halo azul suave.
+8. Las nubes se mezclan al final y se añade un halo azul suave en el borde.
+   Es luz de las estrellas dispersada por la atmósfera, así que una máscara
+   basada en `dot(normal, to_sun)` lo apaga poco después del terminador.
 
 **Parámetros** (`src/shaders/veridia.rs`):
 
@@ -406,9 +404,8 @@ fijo y, de noche, se ilumina una red de filamentos verdes en los continentes.
 | `CLOUD_SPEED` | velocidad de las nubes respecto al terreno fijo |
 | `CLOUD_HEIGHT` | altura analítica que determina la separación entre nubes y sombras |
 | `SHADOW_STRENGTH` | intensidad de las sombras; 0 las desactiva sin quitar las nubes |
-| `NIGHT_GLOW` | intensidad de la bioluminiscencia nocturna |
 | `OCEAN_SPECULAR` | fuerza del reflejo especular del océano |
-| `DEEP_BLUE`, `TURQUOISE`, `FOREST`, `MEADOW`, `BLOSSOM`, `MOUNTAIN`, `ICE`, `CLOUD`, `GLOW` | paleta de las regiones y efectos |
+| `DEEP_BLUE`, `TURQUOISE`, `FOREST`, `MEADOW`, `BLOSSOM`, `MOUNTAIN`, `ICE`, `CLOUD` | paleta de las regiones y efectos |
 
 El parallax es una aproximación local: no modifica la silueta ni agrega
 geometría. El relieve y el desplazamiento usan el marco del modelo actual,
@@ -456,7 +453,7 @@ se solicita una sola vez por entrega, aunque aparezca en varios cuerpos.
 | Efecto | Cuerpo | Archivo y función | Evidencia | Cómo funciona | Parámetro y qué cambia |
 |---|---|---|---|---|---|
 | Material animado | Lunan't, Bocchi, JupyterNotebook, Flora e Iris | `star.rs`, `rocky.rs`, `gas_giant.rs`, `flora.rs`, `iris.rs` → `shade`; Flora también usa `flow` | [Video](assets/videos/shaders_demo.mp4), **00:00–00:05**, **00:16–00:20** y **00:25–00:32**: evolución de plasma, colores y células | El tiempo desplaza plasma, suelo o bandas; Flora deforma sus células y pulsa; Iris evoluciona su ruido. No se cuenta nuevamente el movimiento exigido para las nubes | `FLOW_SPEED`, `PULSE`, `SPIN`, `FALL_SPEED`, `COLOR_SPEED`; en Flora, `WARP_STRENGTH` cambia la deformación |
-| Día y noche | Bocchi y Veridia | `rocky.rs`, `veridia.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:08–00:10**, **00:33–00:34** y **00:38–00:40**: filamentos luminosos en regiones oscuras | Bocchi usa grietas pesadas por `f.light`; Veridia usa el producto firmado entre normal y dirección solar para activar filamentos verdes solo de noche | `NIGHT_GLOW`: intensidad; en Bocchi, `CRACK_SCALE`: tamaño |
+| Día y noche | Bocchi | `rocky.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:08–00:10**: grietas luminosas en la región oscura | Grietas pesadas por `f.light`: solo aparecen de noche. Es el único detalle que brilla sin luz de las estrellas | `NIGHT_GLOW`: intensidad; `CRACK_SCALE`: tamaño |
 | Respuesta distinta a la luz por región | Bocchi y Veridia | `rocky.rs`, `veridia.rs` → `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: vistas generales de las regiones; la diferencia especular/mate no queda aislada con claridad | Bocchi combina agua con Phong, roca mate y plata metálica; Veridia combina océano especular con tierra mate | `SEA_LEVEL`: distribución de regiones; `PEAK_LEVEL` en Bocchi; `OCEAN_SPECULAR` en Veridia |
 | Nubes | Bocchi y Veridia | `rocky.rs` → `clouds`; `veridia.rs` → `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:06–00:15** y **00:33–00:40**: se aprecia la cubierta; los cambios de vista dificultan separar su movimiento del terreno | Máscaras de ruido con movimiento propio; Veridia permite variar la cobertura entre cielo despejado y cubierto | `CLOUD_SPEED`; `CLOUD_COVER` en Bocchi; `CLOUD_COVERAGE` en Veridia |
 | Sombras de nubes | Bocchi y Veridia | `rocky.rs` → `shade`; `veridia.rs` → `shell_point`, `cloud_mask`, `shade` | [Video](assets/videos/shaders_demo.mp4), **00:33–00:40**: vista general; no demuestra de forma concluyente el desplazamiento de la sombra respecto a las nubes al variar solo la luz | Bocchi desplaza la consulta hacia el sol; Veridia intersecta la dirección solar con una altura analítica y consulta la misma máscara que las nubes visibles | `CLOUD_HEIGHT`: separación; `SHADOW_STRENGTH` en Veridia: oscuridad |
