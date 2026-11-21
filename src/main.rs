@@ -25,7 +25,7 @@ use matrix::{create_model_matrix, multiply, new_matrix4, rotation_x, rotation_y}
 use obj::Obj;
 use primitive::primitive_assembly;
 use rasterizer::rasterize;
-use shaders::{fragment_shader_with, vertex_shader_with_matrix, Accessory, Frag, SHADERS};
+use shaders::{fragment_shader_with, vertex_shader_with_matrix, Accessory, Frag, Normals, SHADERS};
 use vertex::Vertex;
 
 const MODEL_PATH: &str = "assets/models/sphere.obj";
@@ -76,6 +76,23 @@ struct SceneObject<'a> {
     vertices: &'a [Vertex],
     model_matrix: Matrix,
     shade: fn(&Frag) -> Vector3,
+    normals: Normals,
+    /// Va entre la vista y el viewport, en el espacio de la camara. En vuelo
+    /// agranda el objeto segun lo cerca que este; en los demas modos es la
+    /// identidad.
+    projection: Matrix,
+}
+
+impl<'a> SceneObject<'a> {
+    fn new(vertices: &'a [Vertex], model_matrix: Matrix, shade: fn(&Frag) -> Vector3) -> Self {
+        SceneObject {
+            vertices,
+            model_matrix,
+            shade,
+            normals: Normals::Sphere,
+            projection: Matrix::identity(),
+        }
+    }
 }
 
 /// Camara ortografica que orbita alrededor de la esfera.
@@ -147,15 +164,9 @@ fn render(
     vertex_array: &[Vertex],
     accessories: &[Accessory],
 ) {
-    let mut objects = vec![SceneObject {
-        vertices: vertex_array,
-        model_matrix: uniforms.model_matrix.clone(),
-        shade: uniforms.shader,
-    }];
-    objects.extend(accessories.iter().map(|object| SceneObject {
-        vertices: object.vertices,
-        model_matrix: object.model_matrix.clone(),
-        shade: object.shade,
+    let mut objects = vec![SceneObject::new(vertex_array, uniforms.model_matrix.clone(), uniforms.shader)];
+    objects.extend(accessories.iter().map(|object| {
+        SceneObject::new(object.vertices, object.model_matrix.clone(), object.shade)
     }));
     render_objects(framebuffer, uniforms, &objects);
 }
@@ -165,9 +176,13 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
         .take(framebuffer.width as usize * framebuffer.height as usize)
         .collect::<Vec<_>>();
     for (object_index, object) in objects.iter().enumerate() {
+        let to_screen = multiply(
+            &uniforms.viewport_matrix,
+            &multiply(&object.projection, &uniforms.view_matrix),
+        );
         let transformed: Vec<Vertex> = object.vertices
             .iter()
-            .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, uniforms))
+            .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, &to_screen))
             .collect();
         let triangles = primitive_assembly(&transformed);
         let fragments = rasterize(
@@ -192,6 +207,7 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
                 uniforms,
                 &object.model_matrix,
                 object.shade,
+                object.normals,
             ))
             .to_display()
         })
@@ -325,32 +341,16 @@ fn main() {
                 let unit_sphere = fit_unit_sphere(&vertex_array);
                 let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3 + orbit_guides.len());
                 for star in &stars {
-                    objects.push(SceneObject {
-                        vertices: &vertex_array,
-                        model_matrix: multiply(&star.model_matrix, &unit_sphere),
-                        shade: star.shader,
-                    });
+                    objects.push(SceneObject::new(&vertex_array, multiply(&star.model_matrix, &unit_sphere), star.shader));
                 }
                 for planet in &planets {
-                    objects.push(SceneObject {
-                        vertices: &vertex_array,
-                        model_matrix: multiply(&planet.model_matrix, &unit_sphere),
-                        shade: planet.shader,
-                    });
+                    objects.push(SceneObject::new(&vertex_array, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
                     for accessory in &planet.accessories {
-                        objects.push(SceneObject {
-                            vertices: accessory.vertices,
-                            model_matrix: accessory.model_matrix.clone(),
-                            shade: accessory.shade,
-                        });
+                        objects.push(SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade));
                     }
                 }
                 for guide in &orbit_guides {
-                    objects.push(SceneObject {
-                        vertices: guide.vertices,
-                        model_matrix: guide.model_matrix.clone(),
-                        shade: guide.shade,
-                    });
+                    objects.push(SceneObject::new(guide.vertices, guide.model_matrix.clone(), guide.shade));
                 }
                 let start = Instant::now();
                 framebuffer.clear_with_starfield();

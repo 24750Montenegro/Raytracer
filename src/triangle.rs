@@ -60,6 +60,7 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, width: i32, height: i32, 
                     depth: pa.z * u + pb.z * v + pc.z * w,
                     object_position: a.position * u + b.position * v + c.position * w,
                     world_position: a.world_position * u + b.world_position * v + c.world_position * w,
+                    normal: a.normal * u + b.normal * v + c.normal * w,
                 });
             }
         }

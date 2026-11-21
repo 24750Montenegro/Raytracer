@@ -91,7 +91,7 @@ impl Frag<'_> {
 /// Matriz por vector. raylib guarda por columnas, asi que la primera fila
 /// de la matriz es m0, m4, m8, m12. w = 1 para puntos, w = 0 para
 /// direcciones (la traslacion no las mueve).
-fn transform(matrix: &Matrix, v: Vector3, w: f32) -> Vector3 {
+pub fn transform(matrix: &Matrix, v: Vector3, w: f32) -> Vector3 {
     Vector3::new(
         matrix.m0 * v.x + matrix.m4 * v.y + matrix.m8 * v.z + matrix.m12 * w,
         matrix.m1 * v.x + matrix.m5 * v.y + matrix.m9 * v.z + matrix.m13 * w,
@@ -99,14 +99,25 @@ fn transform(matrix: &Matrix, v: Vector3, w: f32) -> Vector3 {
     )
 }
 
+/// De donde sale la normal de cada fragmento.
+#[derive(Clone, Copy)]
+pub enum Normals {
+    /// La direccion desde el centro: en una esfera sale suave aunque la malla
+    /// tenga pocos triangulos.
+    Sphere,
+    /// Las normales del OBJ interpoladas, para mallas que no son esferas.
+    Mesh,
+}
+
+/// `to_screen` es vista, proyeccion y viewport ya multiplicadas: una sola
+/// matriz por vertice en vez de tres.
 pub fn vertex_shader_with_matrix(
     vertex: &Vertex,
     model_matrix: &Matrix,
-    uniforms: &Uniforms,
+    to_screen: &Matrix,
 ) -> Vertex {
     let world = transform(model_matrix, vertex.position, 1.0);
-    let view = transform(&uniforms.view_matrix, world, 1.0);
-    let screen = transform(&uniforms.viewport_matrix, view, 1.0);
+    let screen = transform(to_screen, world, 1.0);
 
     Vertex {
         world_position: world,
@@ -120,11 +131,18 @@ pub fn fragment_shader_with(
     uniforms: &Uniforms,
     model_matrix: &Matrix,
     shade: fn(&Frag) -> Vector3,
+    normals: Normals,
 ) -> Vector3 {
-    let p = fragment.object_position.normalized();
-    // en una esfera la normal es la direccion desde el centro: sale suave
-    // aunque la malla tenga pocos triangulos
-    let normal = transform(model_matrix, p, 0.0).normalized();
+    let (p, normal) = match normals {
+        Normals::Sphere => {
+            let p = fragment.object_position.normalized();
+            (p, transform(model_matrix, p, 0.0).normalized())
+        }
+        Normals::Mesh => (
+            fragment.object_position,
+            transform(model_matrix, fragment.normal, 0.0).normalized(),
+        ),
+    };
     let (to_sun, _) = uniforms.sun.direction_from(fragment.world_position);
 
     let frag = Frag {

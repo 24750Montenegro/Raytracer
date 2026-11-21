@@ -3,7 +3,6 @@ use raylib::prelude::*;
 #[derive(Debug, Clone)]
 pub struct Vertex {
     pub position: Vector3,
-    #[allow(dead_code)]
     pub normal: Vector3,
     #[allow(dead_code)]
     pub tex_coords: Vector2,
