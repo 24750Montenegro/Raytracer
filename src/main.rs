@@ -1,4 +1,5 @@
 use raylib::prelude::*;
+use std::cell::RefCell;
 use std::time::Instant;
 
 mod flight;
@@ -80,6 +81,13 @@ pub struct Uniforms {
     pub ambient: Rgb,
     pub time: f32,
     pub shader: fn(&Frag) -> Vector3,
+}
+
+thread_local! {
+    /// El fragmento mas cercano de cada pixel y de que objeto es. Se reusa
+    /// cuadro a cuadro: pedir memoria nueva para toda la pantalla en cada
+    /// cuadro costaba unos 4 ms.
+    static NEAREST: RefCell<Vec<Option<(Fragment, usize)>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Referencia temporal a cualquier malla de la escena. A diferencia de
@@ -339,10 +347,11 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
 
     // rasterizacion y prueba de profundidad, en paralelo por franjas de
     // filas. El fragmento se arma solo cuando el pixel queda delante.
-    let mut nearest: Vec<Option<(Fragment, usize)>> = std::iter::repeat_with(|| None)
-        .take(width * framebuffer.height as usize)
-        .collect();
+    let mut nearest = NEAREST.take();
+    nearest.resize_with(width * framebuffer.height as usize, || None);
     framebuffer.rasterize_bands(&mut nearest, |rows, depth, cells| {
+        // lo que quedo del cuadro anterior se borra aca, cada hilo sus filas
+        cells.fill_with(|| None);
         let first_row = rows.start as usize;
         for (object_index, triangles) in triangles.iter().enumerate() {
             rasterize(triangles, width as i32, rows.clone(), |covered| {
@@ -418,6 +427,7 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
             .unwrap_or_else(|| shade_at(fragment, object));
         Some(color.to_display())
     });
+    NEAREST.set(nearest);
 }
 
 fn capture_path(shader: usize) -> String {
