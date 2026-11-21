@@ -97,8 +97,27 @@ impl Framebuffer {
         }
     }
 
-    
-    
+    /// Rectangulo relleno, recortado a la pantalla. El HUD tambien se dibuja
+    /// aca, en CPU, como todo lo demas.
+    pub fn fill_rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: Color) {
+        let (x0, x1) = (x.max(0), (x + width).min(self.width as i32));
+        let (y0, y1) = (y.max(0), (y + height).min(self.height as i32));
+        for row in y0..y1 {
+            for column in x0..x1 {
+                let index = (row as usize * self.width as usize + column as usize) * 4;
+                self.pixels[index..index + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
+            }
+        }
+    }
+
+    /// Borde de un rectangulo, `thickness` pixeles hacia adentro.
+    pub fn outline(&mut self, x: i32, y: i32, width: i32, height: i32, thickness: i32, color: Color) {
+        self.fill_rect(x, y, width, thickness, color);
+        self.fill_rect(x, y + height - thickness, width, thickness, color);
+        self.fill_rect(x, y, thickness, height, color);
+        self.fill_rect(x + width - thickness, y, thickness, height, color);
+    }
+
     fn index(&self, x: i32, y: i32) -> Option<usize> {
     
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {

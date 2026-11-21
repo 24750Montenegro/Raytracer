@@ -8,6 +8,7 @@ mod obj;
 mod primitive;
 mod rasterizer;
 mod solar_system;
+mod selector;
 mod shaders;
 mod ships;
 mod triangle;
@@ -26,6 +27,7 @@ use matrix::{create_model_matrix, multiply, new_matrix4, rotation_x, rotation_y}
 use obj::Obj;
 use primitive::primitive_assembly;
 use rasterizer::rasterize;
+use selector::Selector;
 use shaders::{fragment_shader_with, vertex_shader_with_matrix, Accessory, Frag, Normals, SHADERS};
 use vertex::Vertex;
 
@@ -238,11 +240,44 @@ fn save_all_captures(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, ver
     }
 }
 
+/// Pantalla de inicio para elegir nave.
+fn run_game(
+    window: &mut RaylibHandle,
+    raylib_thread: &RaylibThread,
+    framebuffer: &mut Framebuffer,
+    uniforms: &mut Uniforms,
+) {
+    let ships = ships::load_reduced();
+    if ships.is_empty() {
+        eprintln!("no hay naves *-reduced.obj en assets/models");
+        return;
+    }
+    let mut selector = Selector::new(ships.len());
+
+    println!("mouse o flechas = mirar las naves | click o Enter = despegar");
+
+    while !window.window_should_close() {
+        let dt = window.get_frame_time();
+        if let Some(chosen) = selector.update(window, dt) {
+            println!("nave elegida: {}", ships[chosen].name);
+        }
+
+        let start = Instant::now();
+        selector.render(framebuffer, uniforms, &ships);
+        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+        window.set_window_title(raylib_thread, &format!("Selecciona tu nave | {elapsed:.0} ms"));
+        framebuffer.swap_buffers(window, raylib_thread, |overlay| selector.overlay(overlay, &ships));
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // El sistema solar queda como experiencia principal. --shaders conserva
-    // el visor anterior para inspeccionar los shaders individualmente.
-    let solar_mode = !args.iter().any(|arg| arg == "--shaders");
+    // Elegir nave y volar por el sistema solar es la experiencia principal.
+    // --orbital conserva la vista del sistema con camara orbital y --shaders
+    // el visor para inspeccionar los shaders individualmente.
+    let lab_mode = args.iter().any(|arg| arg == "--shaders");
+    let solar_mode = !lab_mode && args.iter().any(|arg| arg == "--orbital");
+    let game_mode = !lab_mode && !solar_mode;
 
     let obj = match Obj::load(MODEL_PATH) {
         Ok(obj) => obj,
@@ -282,12 +317,17 @@ fn main() {
 
     let (mut window, raylib_thread) = raylib::init()
         .size(WIDTH, HEIGHT)
-        .title(if solar_mode { "Sistema solar — renderer por software" } else { "Laboratorio de shaders" })
+        .title(if lab_mode { "Laboratorio de shaders" } else { "Sistema solar — renderer por software" })
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
     window.set_target_fps(60);
     framebuffer.init_texture(&mut window, &raylib_thread);
+
+    if game_mode {
+        run_game(&mut window, &raylib_thread, &mut framebuffer, &mut uniforms);
+        return;
+    }
 
     let mut camera = initial_camera;
     let mut sun_angle = INITIAL_SUN_ANGLE;
