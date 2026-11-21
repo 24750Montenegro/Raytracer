@@ -52,6 +52,8 @@ const SUN_DISTANCE: f32 = 1000.0;
 const SUN_HEIGHT: f32 = 0.35;
 const INITIAL_SUN_ANGLE: f32 = -0.8;
 
+const SHIP_MARKER: Color = Color::new(255, 180, 80, 255);
+
 const SHADER_KEYS: [KeyboardKey; 9] = [
     KeyboardKey::KEY_ONE,
     KeyboardKey::KEY_TWO,
@@ -115,6 +117,25 @@ struct Camera {
 }
 
 impl Camera {
+    /// El sistema solar completo, visto desde arriba y un poco de costado.
+    fn system() -> Self {
+        Camera { yaw: 0.22, pitch: 0.82, zoom: 0.035 * WIDTH.min(HEIGHT) as f32 }
+    }
+
+    /// Flechas para orbitar y Z/X para alejar o acercar.
+    fn steer(&mut self, window: &RaylibHandle, dt: f32) {
+        let held = |key| window.is_key_down(key);
+        let turn = ORBIT_SPEED * dt;
+        if held(KeyboardKey::KEY_LEFT) { self.yaw -= turn; }
+        if held(KeyboardKey::KEY_RIGHT) { self.yaw += turn; }
+        if held(KeyboardKey::KEY_UP) { self.pitch += turn; }
+        if held(KeyboardKey::KEY_DOWN) { self.pitch -= turn; }
+        self.pitch = self.pitch.clamp(-1.5, 1.5);
+        if held(KeyboardKey::KEY_Z) { self.zoom /= ZOOM_SPEED.powf(dt); }
+        if held(KeyboardKey::KEY_X) { self.zoom *= ZOOM_SPEED.powf(dt); }
+        self.zoom = self.zoom.clamp(8.0, 900.0);
+    }
+
     fn view_matrix(&self) -> Matrix {
         multiply(&rotation_x(self.pitch), &rotation_y(-self.yaw))
     }
@@ -166,6 +187,93 @@ fn fit_unit_sphere(vertices: &[Vertex]) -> Matrix {
         .fold(f32::EPSILON, f32::max);
 
     create_model_matrix(center * (-1.0 / radius), 1.0 / radius, Vector3::zero())
+}
+
+/// El sistema solar completo con la camara orbital: estrellas, planetas con
+/// sus lunas y anillos, y las orbitas.
+fn draw_system(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, sphere: &[Vertex], camera: &Camera, time: f32) {
+    uniforms.view_matrix = camera.view_matrix();
+    uniforms.viewport_matrix = camera.viewport_matrix();
+    uniforms.to_viewer = camera.to_viewer();
+    uniforms.time = time;
+    // Una sola luz puntual en el centro de la orbita de las dos estrellas.
+    uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
+
+    let stars = solar_system::star_poses(time);
+    let planets = solar_system::planet_poses(time);
+    let orbit_guides = solar_system::orbit_guides();
+    let unit_sphere = fit_unit_sphere(sphere);
+    let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3 + orbit_guides.len());
+    for star in &stars {
+        objects.push(SceneObject::new(sphere, multiply(&star.model_matrix, &unit_sphere), star.shader));
+    }
+    for planet in &planets {
+        objects.push(SceneObject::new(sphere, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
+        for accessory in &planet.accessories {
+            objects.push(SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade));
+        }
+    }
+    for guide in &orbit_guides {
+        objects.push(SceneObject::new(guide.vertices, guide.model_matrix.clone(), guide.shade));
+    }
+    framebuffer.clear_with_starfield();
+    render_objects(framebuffer, uniforms, &objects);
+    for (index, star) in stars.iter().enumerate() {
+        let view_position = transform_point(&uniforms.view_matrix, star.center);
+        let screen_position = transform_point(&uniforms.viewport_matrix, view_position);
+        let glow_color = if index == 0 {
+            Color::new(135, 190, 255, 255)
+        } else {
+            Color::new(90, 205, 255, 255)
+        };
+        framebuffer.add_glow(
+            screen_position.x as i32,
+            screen_position.y as i32,
+            camera.zoom * 1.50,
+            glow_color,
+            0.75,
+        );
+    }
+}
+
+/// Titulo y nombres de la vista del sistema; `controls` cambia segun el modo.
+fn system_overlay(d: &mut RaylibDrawHandle, controls: &str) {
+    d.draw_text("Sistema solar", 18, 16, 24, Color::WHITE);
+    d.draw_text(controls, 18, 46, 16, Color::LIGHTGRAY);
+    d.draw_text("Estrellas: Lunan't + Asterion | Planetas:", 18, 68, 16, Color::LIGHTGRAY);
+    d.draw_text("Bocchi, JupyterNotebook, Flora, Veridia e Iris", 18, 88, 16, Color::LIGHTGRAY);
+}
+
+/// Un circulo donde esta la nave, para ubicarse en la vista del sistema.
+fn mark_ship(framebuffer: &mut Framebuffer, camera: &Camera, position: Vector3) {
+    let at = transform_point(&camera.viewport_matrix(), transform_point(&camera.view_matrix(), position));
+    framebuffer.ring(at.x, at.y, 7.0, 1.6, SHIP_MARKER, 1.0, |_| true);
+    framebuffer.ring(at.x, at.y, 0.0, 3.0, SHIP_MARKER, 1.0, |_| true);
+}
+
+/// Lo que se ve durante el vuelo. Tab pasa a la siguiente.
+#[derive(Clone, Copy, PartialEq)]
+enum View {
+    Ship,
+    ShipWithOrbits,
+    System,
+}
+
+impl View {
+    fn next(self) -> Self {
+        match self {
+            View::Ship => View::ShipWithOrbits,
+            View::ShipWithOrbits => View::System,
+            View::System => View::Ship,
+        }
+    }
+}
+
+/// La mira reemplaza al puntero y arranca en el centro de la pantalla, para
+/// no salir girando hacia donde habia quedado el mouse.
+fn start_aiming(window: &mut RaylibHandle) {
+    window.set_mouse_position(Vector2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0));
+    window.hide_cursor();
 }
 
 fn render(
@@ -265,9 +373,12 @@ fn run_game(
     let mut selector = Selector::new(ships.len());
     // None mientras se esta eligiendo nave
     let mut flight: Option<Flight> = None;
+    let mut view = View::Ship;
+    let mut system_camera = Camera::system();
 
     println!("mouse o flechas = mirar las naves | click o Enter = despegar");
     println!("W = avanzar | mouse = apuntar | R = reiniciar | Backspace = cambiar nave");
+    println!("Tab = orbitas, despues el sistema completo (flechas y Z/X), despues la nave");
 
     while !window.window_should_close() {
         let dt = window.get_frame_time();
@@ -275,14 +386,20 @@ fn run_game(
         if flight.is_none() {
             if let Some(chosen) = selector.update(window, dt) {
                 flight = Some(Flight::new(chosen));
-                // el mouse arranca en el centro para no salir girando hacia
-                // donde estaba la nave elegida, y la mira reemplaza al puntero
-                window.set_mouse_position(Vector2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0));
-                window.hide_cursor();
+                view = View::Ship;
+                start_aiming(window);
             }
         } else if window.is_key_pressed(KeyboardKey::KEY_BACKSPACE) {
             flight = None;
             window.show_cursor();
+        } else if window.is_key_pressed(KeyboardKey::KEY_TAB) {
+            view = view.next();
+            match view {
+                View::Ship => start_aiming(window),
+                View::ShipWithOrbits => {}
+                // en la vista del sistema el mouse no apunta
+                View::System => window.show_cursor(),
+            }
         }
 
         let start = Instant::now();
@@ -297,12 +414,26 @@ fn run_game(
                 if window.is_key_pressed(KeyboardKey::KEY_R) {
                     *game = Flight::new(game.ship);
                 }
-                game.update(&Controls::read(window), dt);
                 let ship = &ships[game.ship];
-                game.render(framebuffer, uniforms, ship, sphere);
-                let elapsed = start.elapsed().as_secs_f32() * 1000.0;
-                window.set_window_title(raylib_thread, &format!("Vuelo | {} | {elapsed:.0} ms", ship.name));
-                framebuffer.swap_buffers(window, raylib_thread, |overlay| game.overlay(overlay, ship));
+                if view == View::System {
+                    // la nave queda sin mando y se va frenando; el sistema sigue
+                    system_camera.steer(window, dt);
+                    game.update(&Controls::idle(), dt);
+                    draw_system(framebuffer, uniforms, sphere, &system_camera, game.time());
+                    mark_ship(framebuffer, &system_camera, game.position());
+                    let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+                    window.set_window_title(raylib_thread, &format!("Sistema solar | {elapsed:.0} ms"));
+                    framebuffer.swap_buffers(window, raylib_thread, |overlay| {
+                        system_overlay(overlay, "Flechas: orbitar camara | Z/X: zoom | Tab: volver a la nave");
+                        overlay.draw_text("Circulo naranja: tu nave", 18, 110, 16, SHIP_MARKER);
+                    });
+                } else {
+                    game.update(&Controls::read(window), dt);
+                    game.render(framebuffer, uniforms, ship, sphere, view == View::ShipWithOrbits);
+                    let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+                    window.set_window_title(raylib_thread, &format!("Vuelo | {} | {elapsed:.0} ms", ship.name));
+                    framebuffer.swap_buffers(window, raylib_thread, |overlay| game.overlay(overlay, ship));
+                }
             }
         }
     }
@@ -327,10 +458,10 @@ fn main() {
     let vertex_array = obj.get_vertex_array();
     println!("triangulos: {}", vertex_array.len() / 3);
 
-    let initial_camera = Camera {
-        yaw: if solar_mode { 0.22 } else { 0.0 },
-        pitch: if solar_mode { 0.82 } else { 0.25 },
-        zoom: if solar_mode { 0.035 * WIDTH.min(HEIGHT) as f32 } else { FIT * WIDTH.min(HEIGHT) as f32 },
+    let initial_camera = if solar_mode {
+        Camera::system()
+    } else {
+        Camera { yaw: 0.0, pitch: 0.25, zoom: FIT * WIDTH.min(HEIGHT) as f32 }
     };
 
     let mut uniforms = Uniforms {
@@ -394,75 +525,22 @@ fn main() {
                 paused = false;
             }
             if !paused { time += dt; }
-
-            let turn = ORBIT_SPEED * dt;
-            if held(KeyboardKey::KEY_LEFT) { camera.yaw -= turn; }
-            if held(KeyboardKey::KEY_RIGHT) { camera.yaw += turn; }
-            if held(KeyboardKey::KEY_UP) { camera.pitch += turn; }
-            if held(KeyboardKey::KEY_DOWN) { camera.pitch -= turn; }
-            camera.pitch = camera.pitch.clamp(-1.5, 1.5);
-            if held(KeyboardKey::KEY_Z) { camera.zoom /= ZOOM_SPEED.powf(dt); }
-            if held(KeyboardKey::KEY_X) { camera.zoom *= ZOOM_SPEED.powf(dt); }
-            camera.zoom = camera.zoom.clamp(8.0, 900.0);
+            camera.steer(&window, dt);
 
             let state = (camera, time);
             if solar_drawn != Some(state) {
-                uniforms.view_matrix = camera.view_matrix();
-                uniforms.viewport_matrix = camera.viewport_matrix();
-                uniforms.to_viewer = camera.to_viewer();
-                uniforms.time = time;
-                // Una sola luz puntual en el centro de la orbita de las dos estrellas.
-                uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
-
-                let stars = solar_system::star_poses(time);
-                let planets = solar_system::planet_poses(time);
-                let orbit_guides = solar_system::orbit_guides();
-                let unit_sphere = fit_unit_sphere(&vertex_array);
-                let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3 + orbit_guides.len());
-                for star in &stars {
-                    objects.push(SceneObject::new(&vertex_array, multiply(&star.model_matrix, &unit_sphere), star.shader));
-                }
-                for planet in &planets {
-                    objects.push(SceneObject::new(&vertex_array, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
-                    for accessory in &planet.accessories {
-                        objects.push(SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade));
-                    }
-                }
-                for guide in &orbit_guides {
-                    objects.push(SceneObject::new(guide.vertices, guide.model_matrix.clone(), guide.shade));
-                }
                 let start = Instant::now();
-                framebuffer.clear_with_starfield();
-                render_objects(&mut framebuffer, &uniforms, &objects);
-                for (index, star) in stars.iter().enumerate() {
-                    let view_position = transform_point(&uniforms.view_matrix, star.center);
-                    let screen_position = transform_point(&uniforms.viewport_matrix, view_position);
-                    let glow_color = if index == 0 {
-                        Color::new(135, 190, 255, 255)
-                    } else {
-                        Color::new(90, 205, 255, 255)
-                    };
-                    framebuffer.add_glow(
-                        screen_position.x as i32,
-                        screen_position.y as i32,
-                        camera.zoom * 1.50,
-                        glow_color,
-                        0.75,
-                    );
-                }
+                draw_system(&mut framebuffer, &mut uniforms, &vertex_array, &camera, time);
                 let elapsed = start.elapsed().as_secs_f32() * 1000.0;
                 window.set_window_title(
                     &raylib_thread,
-                    &format!("Sistema solar | {} planetas | {elapsed:.0} ms | t = {time:.1} s{}", planets.len(), if paused { " (pausa)" } else { "" }),
+                    &format!("Sistema solar | {} planetas | {elapsed:.0} ms | t = {time:.1} s{}", solar_system::PLANETS.len(), if paused { " (pausa)" } else { "" }),
                 );
                 solar_drawn = Some(state);
             }
 
             framebuffer.swap_buffers(&mut window, &raylib_thread, |overlay| {
-                overlay.draw_text("Sistema solar", 18, 16, 24, Color::WHITE);
-                overlay.draw_text("Flechas: orbitar camara | Z/X: zoom | Espacio: pausa | R: reiniciar", 18, 46, 16, Color::LIGHTGRAY);
-                overlay.draw_text("Estrellas: Lunan't + Asterion | Planetas:", 18, 68, 16, Color::LIGHTGRAY);
-                overlay.draw_text("Bocchi, JupyterNotebook, Flora, Veridia e Iris", 18, 88, 16, Color::LIGHTGRAY);
+                system_overlay(overlay, "Flechas: orbitar camara | Z/X: zoom | Espacio: pausa | R: reiniciar");
             });
             continue;
         }

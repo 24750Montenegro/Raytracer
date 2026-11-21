@@ -103,6 +103,11 @@ pub struct Controls {
 }
 
 impl Controls {
+    /// Sin acelerar ni girar: la nave sigue derecho y se va frenando.
+    pub fn idle() -> Self {
+        Controls { thrust: false, aim: Vector2::zero() }
+    }
+
     pub fn read(window: &RaylibHandle) -> Self {
         let mouse = window.get_mouse_position();
         // con la ventana en segundo plano el mouse anda por otro lado
@@ -182,7 +187,22 @@ impl Flight {
         self.eye = self.keep_clear(self.eye + (target - self.eye) * follow(CHASE_STIFFNESS, dt), NEAR);
     }
 
-    pub fn render(&self, framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, ship: &Ship, sphere: &[Vertex]) {
+    pub fn time(&self) -> f32 {
+        self.time
+    }
+
+    pub fn position(&self) -> Vector3 {
+        self.position
+    }
+
+    pub fn render(
+        &self,
+        framebuffer: &mut Framebuffer,
+        uniforms: &mut Uniforms,
+        ship: &Ship,
+        sphere: &[Vertex],
+        show_orbits: bool,
+    ) {
         let (_, up, forward) = self.basis();
         let target = self.position + forward * LOOK_AHEAD;
         let view = look_at(self.eye, target, up);
@@ -241,7 +261,9 @@ impl Flight {
         framebuffer.clear();
         draw_sky(framebuffer, &view);
         render_objects(framebuffer, uniforms, &objects);
-        draw_orbits(framebuffer, &view);
+        if show_orbits {
+            draw_orbits(framebuffer, &view);
+        }
 
         for (index, star) in self.stars.iter().enumerate() {
             let Some(at) = project(&view, star.center) else { continue };
@@ -277,13 +299,8 @@ impl Flight {
             let text = format!("cerca de {} ({:.1})", body.name, self.surface_distance(body));
             d.draw_text(&text, 18, 64, 16, Color::LIGHTGRAY);
         }
-        d.draw_text(
-            "W: avanzar | mouse: apuntar | R: reiniciar | Backspace: cambiar nave",
-            18,
-            HEIGHT - 30,
-            16,
-            Color::LIGHTGRAY,
-        );
+        d.draw_text("W: avanzar | mouse: apuntar | Tab: orbitas / sistema solar", 18, HEIGHT - 52, 16, Color::LIGHTGRAY);
+        d.draw_text("R: reiniciar | Backspace: cambiar nave", 18, HEIGHT - 30, 16, Color::LIGHTGRAY);
     }
 
     /// Derecha, arriba y adelante de la nave, sin contar el ladeo.
