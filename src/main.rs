@@ -313,8 +313,9 @@ fn main() {
 
                 let stars = solar_system::star_poses(time);
                 let planets = solar_system::planet_poses(time);
+                let orbit_guides = solar_system::orbit_guides();
                 let unit_sphere = fit_unit_sphere(&vertex_array);
-                let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3);
+                let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3 + orbit_guides.len());
                 for star in &stars {
                     objects.push(SceneObject {
                         vertices: &vertex_array,
@@ -336,6 +337,13 @@ fn main() {
                         });
                     }
                 }
+                for guide in &orbit_guides {
+                    objects.push(SceneObject {
+                        vertices: guide.vertices,
+                        model_matrix: guide.model_matrix.clone(),
+                        shade: guide.shade,
+                    });
+                }
                 let start = Instant::now();
                 framebuffer.clear();
                 render_objects(&mut framebuffer, &uniforms, &objects);
@@ -350,7 +358,8 @@ fn main() {
             framebuffer.swap_buffers(&mut window, &raylib_thread, |overlay| {
                 overlay.draw_text("Sistema solar", 18, 16, 24, Color::WHITE);
                 overlay.draw_text("Flechas: orbitar camara | Z/X: zoom | Espacio: pausa | R: reiniciar", 18, 46, 16, Color::LIGHTGRAY);
-                overlay.draw_text("Estrellas: Lunan't + Asterion | Planetas: Bocchi, JupyterNotebook, Flora, Veridia e Iris", 18, 68, 16, Color::LIGHTGRAY);
+                overlay.draw_text("Estrellas: Lunan't + Asterion | Planetas:", 18, 68, 16, Color::LIGHTGRAY);
+                overlay.draw_text("Bocchi, JupyterNotebook, Flora, Veridia e Iris", 18, 88, 16, Color::LIGHTGRAY);
             });
             continue;
         }
