@@ -7,6 +7,8 @@ use crate::vertex::Vertex;
 
 pub struct Body {
     pub name: &'static str,
+    /// Que tipo de cuerpo celeste es, para mostrarlo en pantalla.
+    pub kind: &'static str,
     pub shader_name: &'static str,
     pub orbit_radius: f32,
     pub orbit_speed: f32, // radianes por segundo
@@ -17,6 +19,7 @@ pub struct Body {
 
 pub struct BodyPose {
     pub name: &'static str,
+    pub kind: &'static str,
     pub center: Vector3,
     pub radius: f32,
     pub model_matrix: Matrix,
@@ -25,11 +28,11 @@ pub struct BodyPose {
 }
 
 pub const PLANETS: &[Body] = &[
-    Body { name: "Bocchi", shader_name: "planeta rocoso", orbit_radius: 4.0, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68 },
-    Body { name: "JupyterNotebook", shader_name: "gigante gaseoso", orbit_radius: 6.3, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82 },
-    Body { name: "Flora", shader_name: "flora", orbit_radius: 8.6, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72 },
-    Body { name: "Veridia", shader_name: "veridia", orbit_radius: 10.9, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78 },
-    Body { name: "Iris", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
+    Body { name: "Bocchi", kind: "Planeta rocoso", shader_name: "planeta rocoso", orbit_radius: 4.0, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68 },
+    Body { name: "JupyterNotebook", kind: "Gigante gaseoso", shader_name: "gigante gaseoso", orbit_radius: 6.3, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82 },
+    Body { name: "Flora", kind: "Planeta", shader_name: "flora", orbit_radius: 8.6, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72 },
+    Body { name: "Veridia", kind: "Planeta rocoso", shader_name: "veridia", orbit_radius: 10.9, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78 },
+    Body { name: "Iris", kind: "Gigante gaseoso", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
 ];
 
 /// Radio de la orbita que comparten las dos estrellas, una frente a la otra.
@@ -67,6 +70,7 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
         }
         BodyPose {
             name: body.name,
+            kind: body.kind,
             center,
             radius: body.radius,
             model_matrix,
@@ -95,6 +99,7 @@ pub fn star_poses(time: f32) -> Vec<BodyPose> {
         );
         BodyPose {
             name: if index == 0 { "Lunan't" } else { "Asterión" },
+            kind: "Estrella",
             center,
             radius,
             model_matrix,

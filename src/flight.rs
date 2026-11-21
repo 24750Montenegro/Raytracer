@@ -76,6 +76,9 @@ const ORBIT_COLOR: Color = Color::new(46, 58, 76, 255);
 const RETICLE_COLOR: Color = Color::new(110, 220, 255, 255);
 /// Radianes por segundo que giran los arcos de la mira.
 const RETICLE_SPIN: f32 = 0.9;
+/// Ancho y alto del recuadro con el nombre del cuerpo que se apunta.
+const TARGET_PANEL: (i32, i32) = (200, 56);
+const PANEL_FILL: Color = Color::new(8, 18, 32, 255);
 
 /// Esfera con mas triangulos para los cuerpos que se ven grandes.
 static FINE_SPHERE: LazyLock<Vec<Vertex>> = LazyLock::new(|| sphere_mesh(48, 32));
@@ -213,9 +216,8 @@ impl Flight {
         sphere: &[Vertex],
         show_orbits: bool,
     ) {
-        let (_, up, forward) = self.basis();
-        let target = self.position + forward * LOOK_AHEAD;
-        let view = look_at(self.eye, target, up);
+        let (_, _, forward) = self.basis();
+        let view = self.view();
         uniforms.view_matrix = view.clone();
         // sin escala: el tamano en pantalla lo pone la proyeccion de cada objeto
         uniforms.viewport_matrix = new_matrix4([
@@ -224,7 +226,7 @@ impl Flight {
             [0.0, 0.0, -1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ]);
-        uniforms.to_viewer = (self.eye - target).normalized();
+        uniforms.to_viewer = (self.eye - self.look_target()).normalized();
         uniforms.time = self.time;
         // Una sola luz puntual en el centro de la orbita de las dos estrellas.
         uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
@@ -293,16 +295,26 @@ impl Flight {
             }
         }
 
+        // el recuadro del cuerpo apuntado; el texto lo pone `overlay`
+        if let Some((_, x, y)) = self.target() {
+            let (width, height) = TARGET_PANEL;
+            framebuffer.tint_rect(x, y, width, height, PANEL_FILL, 0.8);
+            framebuffer.outline(x, y, width, height, 1, RETICLE_COLOR);
+            framebuffer.fill_rect(x, y, 3, height, RETICLE_COLOR);
+        }
+
         // un punto tenue en el centro (por donde se sigue derecho) y la mira
         // donde esta el mouse, que reemplaza al puntero
-        let (center_x, center_y) = (WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
-        framebuffer.ring(center_x, center_y, 0.0, 3.0, RETICLE_COLOR, 0.5, |_| true);
-        let aim_x = center_x + self.aim.x * WIDTH as f32 / 2.0;
-        let aim_y = center_y + self.aim.y * HEIGHT as f32 / 2.0;
+        framebuffer.ring(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0, 0.0, 3.0, RETICLE_COLOR, 0.5, |_| true);
+        let (aim_x, aim_y) = self.aim_point();
         draw_reticle(framebuffer, aim_x, aim_y, self.time);
     }
 
     pub fn overlay(&self, d: &mut RaylibDrawHandle, ship: &Ship) {
+        if let Some((body, x, y)) = self.target() {
+            d.draw_text(body.name, x + 14, y + 9, 20, Color::WHITE);
+            d.draw_text(body.kind, x + 14, y + 33, 16, RETICLE_COLOR);
+        }
         d.draw_text(&ship.name, 18, 16, 22, Color::WHITE);
         let speed = format!("velocidad {:.1} / {MAX_SPEED:.0}", self.speed);
         d.draw_text(&speed, 18, 44, 16, Color::LIGHTGRAY);
@@ -324,6 +336,51 @@ impl Flight {
         let forward = Vector3::new(sin_yaw * cos_pitch, sin_pitch, -cos_yaw * cos_pitch);
         let right = Vector3::new(cos_yaw, 0.0, sin_yaw);
         (right, right.cross(forward), forward)
+    }
+
+    /// El punto al que mira la camara, `LOOK_AHEAD` delante de la nave.
+    fn look_target(&self) -> Vector3 {
+        self.position + self.basis().2 * LOOK_AHEAD
+    }
+
+    fn view(&self) -> Matrix {
+        let (_, up, _) = self.basis();
+        look_at(self.eye, self.look_target(), up)
+    }
+
+    /// Donde esta la mira en pantalla, en pixeles.
+    fn aim_point(&self) -> (f32, f32) {
+        (
+            WIDTH as f32 / 2.0 * (1.0 + self.aim.x),
+            HEIGHT as f32 / 2.0 * (1.0 + self.aim.y),
+        )
+    }
+
+    /// La estrella o el planeta bajo la mira, y donde va su recuadro. Si la
+    /// mira cae sobre varios, uno delante del otro, gana el mas cercano.
+    fn target(&self) -> Option<(&BodyPose, i32, i32)> {
+        let view = self.view();
+        let (aim_x, aim_y) = self.aim_point();
+        let distance = |body: &BodyPose| (self.eye - body.center).length();
+        let body = self
+            .stars
+            .iter()
+            .chain(&self.planets)
+            .filter(|body| distance(body) > body.radius)
+            .filter(|body| {
+                project(&view, body.center).is_some_and(|at| {
+                    let reach = body.radius * at.scale;
+                    (aim_x - at.x).powi(2) + (aim_y - at.y).powi(2) <= reach * reach
+                })
+            })
+            .min_by(|a, b| distance(a).total_cmp(&distance(b)))?;
+
+        // abajo a la derecha de la mira, o del otro lado si ahi no entra
+        let (width, height) = TARGET_PANEL;
+        let (aim_x, aim_y) = (aim_x as i32, aim_y as i32);
+        let x = if aim_x + 26 + width <= WIDTH { aim_x + 26 } else { aim_x - 26 - width };
+        let y = if aim_y + 18 + height <= HEIGHT { aim_y + 18 } else { aim_y - 18 - height };
+        Some((body, x, y))
     }
 
     /// Detras y un poco arriba de la nave: donde va la camara.

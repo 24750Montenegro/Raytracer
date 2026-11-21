@@ -180,6 +180,15 @@ impl Framebuffer {
         }
     }
 
+    /// Rectangulo translucido: mezcla `color` con lo que ya hay segun `alpha`.
+    pub fn tint_rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: Color, alpha: f32) {
+        for row in y.max(0)..(y + height).min(self.height as i32) {
+            for column in x.max(0)..(x + width).min(self.width as i32) {
+                self.blend(column, row, color, alpha);
+            }
+        }
+    }
+
     /// Mezcla `color` sobre el pixel: 0 lo deja igual, 1 lo reemplaza.
     fn blend(&mut self, x: i32, y: i32, color: Color, amount: f32) {
         let Some(index) = self.index(x, y) else { return };
