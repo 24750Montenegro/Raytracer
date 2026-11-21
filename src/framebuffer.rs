@@ -110,6 +110,31 @@ impl Framebuffer {
         }
     }
 
+    /// Un pixel suelto, si cae dentro de la pantalla.
+    pub fn plot(&mut self, x: i32, y: i32, color: Color) {
+        if let Some(index) = self.index(x, y) {
+            self.pixels[index * 4..index * 4 + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
+        }
+    }
+
+    /// Linea entre dos puntos de pantalla (x e y en pixeles, z la
+    /// profundidad). Respeta lo que ya se dibujo mas cerca pero no escribe la
+    /// profundidad: las orbitas quedan detras de los planetas y no se tapan
+    /// entre ellas.
+    pub fn line(&mut self, from: Vector3, to: Vector3, color: Color) {
+        let Some((from, to)) = clip_to_screen(from, to, self.width as f32, self.height as f32) else {
+            return;
+        };
+        let steps = (to.x - from.x).abs().max((to.y - from.y).abs()).ceil().max(1.0);
+        for step in 0..=steps as i32 {
+            let point = from.lerp(to, step as f32 / steps);
+            let Some(index) = self.index(point.x as i32, point.y as i32) else { continue };
+            if point.z < self.depth[index] {
+                self.pixels[index * 4..index * 4 + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
+            }
+        }
+    }
+
     /// Borde de un rectangulo, `thickness` pixeles hacia adentro.
     pub fn outline(&mut self, x: i32, y: i32, width: i32, height: i32, thickness: i32, color: Color) {
         self.fill_rect(x, y, width, thickness, color);
@@ -221,7 +246,36 @@ fn to_byte(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0) as u8
 }
 
-fn star_hash(index: usize) -> u32 {
+/// Recorta el segmento al rectangulo de la pantalla (Liang-Barsky): una
+/// orbita que pasa al lado de la camara puede proyectarse a miles de pixeles
+/// y no hace falta recorrer los que quedan afuera.
+fn clip_to_screen(from: Vector3, to: Vector3, width: f32, height: f32) -> Option<(Vector3, Vector3)> {
+    let delta = to - from;
+    let (mut enter, mut exit) = (0.0_f32, 1.0_f32);
+    let edges = [
+        (-delta.x, from.x),
+        (delta.x, width - 1.0 - from.x),
+        (-delta.y, from.y),
+        (delta.y, height - 1.0 - from.y),
+    ];
+    for (direction, room) in edges {
+        if direction == 0.0 {
+            if room < 0.0 {
+                return None;
+            }
+            continue;
+        }
+        let t = room / direction;
+        if direction < 0.0 {
+            enter = enter.max(t);
+        } else {
+            exit = exit.min(t);
+        }
+    }
+    (enter <= exit).then(|| (from + delta * enter, from + delta * exit))
+}
+
+pub fn star_hash(index: usize) -> u32 {
     let mut hash = (index as u32).wrapping_add(0x9E37_79B9);
     hash ^= hash >> 16;
     hash = hash.wrapping_mul(0x7FEB_352D);
