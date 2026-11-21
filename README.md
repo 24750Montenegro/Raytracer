@@ -357,7 +357,17 @@ la textura de gas.
 4. Vetas: otro `fbm` más fino multiplica el color entre 0.4 y 1.2, y deja
    nubes oscuras alargadas sobre el neón.
 5. `f.lit`: la superficie no emite, solo refleja la luz de las estrellas, así
-   que el lado de noche queda oscuro. Los anillos tampoco emiten.
+   que el lado de noche queda oscuro.
+6. Anillos de hielo, como los de Saturno. En el sistema solar el planeta tiene
+   el eje inclinado 27° (`axial_tilt` en `src/solar_system.rs`), fijo en el
+   espacio: a lo largo de la órbita las estrellas iluminan los anillos de
+   arriba o de abajo, y en los equinoccios les pegan de canto. Brillan con la
+   ley de Lommel-Seeliger, la de las superficies hechas de partículas: cuanto
+   más de canto se los mira, más brillan. Desde el lado sin sol solo pasa un
+   poco de luz, salvo a contraluz, donde el hielo la dispersa hacia adelante.
+   El planeta les proyecta su sombra: `planet_shadow` mira si el rayo hacia
+   el sol choca con él. Las franjas finas salen de un `fbm` de la distancia
+   al centro del planeta.
 
 **Parámetros** (`src/shaders/gas_giant.rs`):
 
@@ -368,6 +378,8 @@ la textura de gas.
 | `TURBULENCE` | qué tan ondulados son los bordes |
 | `COLOR_SPEED` | qué tan rápido cambian los colores |
 | `LIGHT`, `DARK` | colores del neón y de las líneas oscuras (paleta Dracula) |
+| `RING_BANDS` | cuántas franjas tienen los anillos |
+| `RING_TRANSMISSION`, `RING_BACKLIT` | cuánta luz atraviesa los anillos, normal y a contraluz |
 
 ### Planeta: Flora
 
