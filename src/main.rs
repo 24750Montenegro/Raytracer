@@ -1,6 +1,7 @@
 use raylib::prelude::*;
 use std::time::Instant;
 
+mod flight;
 mod fragment;
 mod framebuffer;
 mod matrix;
@@ -21,6 +22,7 @@ mod material;
 mod shading;
 
 use color::Rgb;
+use flight::{Controls, Flight};
 use framebuffer::Framebuffer;
 use light::Light;
 use matrix::{create_model_matrix, multiply, new_matrix4, rotation_x, rotation_y};
@@ -240,12 +242,14 @@ fn save_all_captures(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, ver
     }
 }
 
-/// Pantalla de inicio para elegir nave.
+/// Pantalla de inicio para elegir nave y despues el vuelo por el sistema
+/// solar con esa nave.
 fn run_game(
     window: &mut RaylibHandle,
     raylib_thread: &RaylibThread,
     framebuffer: &mut Framebuffer,
     uniforms: &mut Uniforms,
+    sphere: &[Vertex],
 ) {
     let ships = ships::load_reduced();
     if ships.is_empty() {
@@ -253,20 +257,46 @@ fn run_game(
         return;
     }
     let mut selector = Selector::new(ships.len());
+    // None mientras se esta eligiendo nave
+    let mut flight: Option<Flight> = None;
 
     println!("mouse o flechas = mirar las naves | click o Enter = despegar");
+    println!("W = avanzar | mouse = apuntar | R = reiniciar | Backspace = cambiar nave");
 
     while !window.window_should_close() {
         let dt = window.get_frame_time();
-        if let Some(chosen) = selector.update(window, dt) {
-            println!("nave elegida: {}", ships[chosen].name);
+
+        if flight.is_none() {
+            if let Some(chosen) = selector.update(window, dt) {
+                flight = Some(Flight::new(chosen));
+                // el mouse arranca en el centro para no salir girando hacia
+                // donde estaba la nave elegida
+                window.set_mouse_position(Vector2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0));
+            }
+        } else if window.is_key_pressed(KeyboardKey::KEY_BACKSPACE) {
+            flight = None;
         }
 
         let start = Instant::now();
-        selector.render(framebuffer, uniforms, &ships);
-        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
-        window.set_window_title(raylib_thread, &format!("Selecciona tu nave | {elapsed:.0} ms"));
-        framebuffer.swap_buffers(window, raylib_thread, |overlay| selector.overlay(overlay, &ships));
+        match &mut flight {
+            None => {
+                selector.render(framebuffer, uniforms, &ships);
+                let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+                window.set_window_title(raylib_thread, &format!("Selecciona tu nave | {elapsed:.0} ms"));
+                framebuffer.swap_buffers(window, raylib_thread, |overlay| selector.overlay(overlay, &ships));
+            }
+            Some(game) => {
+                if window.is_key_pressed(KeyboardKey::KEY_R) {
+                    *game = Flight::new(game.ship);
+                }
+                game.update(&Controls::read(window), dt);
+                let ship = &ships[game.ship];
+                game.render(framebuffer, uniforms, ship, sphere);
+                let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+                window.set_window_title(raylib_thread, &format!("Vuelo | {} | {elapsed:.0} ms", ship.name));
+                framebuffer.swap_buffers(window, raylib_thread, |overlay| game.overlay(overlay, ship));
+            }
+        }
     }
 }
 
@@ -325,7 +355,7 @@ fn main() {
     framebuffer.init_texture(&mut window, &raylib_thread);
 
     if game_mode {
-        run_game(&mut window, &raylib_thread, &mut framebuffer, &mut uniforms);
+        run_game(&mut window, &raylib_thread, &mut framebuffer, &mut uniforms, &vertex_array);
         return;
     }
 
