@@ -6,6 +6,7 @@ mod fragment;
 mod framebuffer;
 mod matrix;
 mod obj;
+mod pool;
 mod primitive;
 mod rasterizer;
 mod solar_system;

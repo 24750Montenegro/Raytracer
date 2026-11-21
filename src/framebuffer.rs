@@ -1,6 +1,9 @@
 // framebuffer.rs
 // La imagen en RAM y como se sube a la ventana.
 use raylib::prelude::*;
+use std::sync::Mutex;
+
+use crate::pool::Pool;
 
 pub struct Framebuffer {
     pub width: u32,
@@ -15,6 +18,8 @@ pub struct Framebuffer {
     background_color: Vector3,
     /// Textura en GPU reutilizada frame a frame; se crea una sola vez.
     texture: Option<Texture2D>,
+    /// Hilos que reparten el fragment shader; tambien se crean una sola vez.
+    pool: Pool,
 }
 
 impl Framebuffer {
@@ -40,6 +45,7 @@ impl Framebuffer {
             depth: vec![f32::INFINITY; size],
             background_color: Vector3::new(0.0, 0.0, 0.0),
             texture: None,
+            pool: Pool::new(std::thread::available_parallelism().map_or(1, |count| count.get())),
         }
     }
 
@@ -169,25 +175,25 @@ impl Framebuffer {
     /// que todos reciban parte de la esfera.
     pub fn shade(&mut self, color_at: impl Fn(usize) -> Option<Color> + Sync) {
         let width = self.width as usize;
-        let threads = std::thread::available_parallelism().map_or(1, |count| count.get());
+        let Framebuffer { pixels, pool, .. } = self;
+        let threads = pool.threads();
 
         let mut work: Vec<Vec<(usize, &mut [u8])>> = (0..threads).map(|_| Vec::new()).collect();
-        for (y, row) in self.pixels.chunks_exact_mut(width * 4).enumerate() {
+        for (y, row) in pixels.chunks_exact_mut(width * 4).enumerate() {
             work[y % threads].push((y, row));
         }
+        // cada hilo toma solo su propio lote, asi que los candados nunca se
+        // disputan: estan para que el compilador acepte prestar filas
+        // mutables a una funcion compartida
+        let work: Vec<Mutex<_>> = work.into_iter().map(Mutex::new).collect();
 
-        let color_at = &color_at;
-        std::thread::scope(|scope| {
-            for rows in work {
-                scope.spawn(move || {
-                    for (y, row) in rows {
-                        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
-                            if let Some(color) = color_at(y * width + x) {
-                                pixel.copy_from_slice(&[color.r, color.g, color.b, 255]);
-                            }
-                        }
+        pool.run(&|thread| {
+            for (y, row) in work[thread].lock().unwrap().iter_mut() {
+                for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                    if let Some(color) = color_at(*y * width + x) {
+                        pixel.copy_from_slice(&[color.r, color.g, color.b, 255]);
                     }
-                });
+                }
             }
         });
     }
