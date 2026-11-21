@@ -8,6 +8,7 @@ use crate::vertex::Vertex;
 use crate::Uniforms;
 
 pub mod kit;
+pub mod ship;
 
 mod gas_giant;
 mod rocky;

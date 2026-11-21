@@ -9,6 +9,7 @@ mod primitive;
 mod rasterizer;
 mod solar_system;
 mod shaders;
+mod ships;
 mod triangle;
 mod vertex;
 
