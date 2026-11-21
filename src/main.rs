@@ -23,6 +23,7 @@ mod material;
 mod shading;
 
 use color::Rgb;
+use fragment::Fragment;
 use flight::{Controls, Flight};
 use framebuffer::Framebuffer;
 use light::Light;
@@ -290,32 +291,41 @@ fn render(
 }
 
 fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &[SceneObject<'_>]) {
-    let mut nearest = std::iter::repeat_with(|| None)
-        .take(framebuffer.width as usize * framebuffer.height as usize)
-        .collect::<Vec<_>>();
-    for (object_index, object) in objects.iter().enumerate() {
-        let to_screen = multiply(
-            &uniforms.viewport_matrix,
-            &multiply(&object.projection, &uniforms.view_matrix),
-        );
-        let transformed: Vec<Vertex> = object.vertices
-            .iter()
-            .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, &to_screen))
-            .collect();
-        let triangles = primitive_assembly(&transformed);
-        let fragments = rasterize(
-            &triangles,
-            framebuffer.width as i32,
-            framebuffer.height as i32,
-        );
+    let width = framebuffer.width as usize;
 
-        for fragment in fragments {
-            let (x, y) = (fragment.position.x as i32, fragment.position.y as i32);
-            if let Some(index) = framebuffer.depth_test(x, y, fragment.depth) {
-                nearest[index] = Some((fragment, object_index));
-            }
+    // vertex shader y ensamblaje: cada objeto pasa sus vertices a pantalla
+    let triangles: Vec<Vec<[Vertex; 3]>> = objects
+        .iter()
+        .map(|object| {
+            let to_screen = multiply(
+                &uniforms.viewport_matrix,
+                &multiply(&object.projection, &uniforms.view_matrix),
+            );
+            let transformed: Vec<Vertex> = object.vertices
+                .iter()
+                .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, &to_screen))
+                .collect();
+            primitive_assembly(&transformed)
+        })
+        .collect();
+
+    // rasterizacion y prueba de profundidad, en paralelo por franjas de
+    // filas. El fragmento se arma solo cuando el pixel queda delante.
+    let mut nearest: Vec<Option<(Fragment, usize)>> = std::iter::repeat_with(|| None)
+        .take(width * framebuffer.height as usize)
+        .collect();
+    framebuffer.rasterize_bands(&mut nearest, |rows, depth, cells| {
+        let first_row = rows.start as usize;
+        for (object_index, triangles) in triangles.iter().enumerate() {
+            rasterize(triangles, width as i32, rows.clone(), |covered| {
+                let index = (covered.y as usize - first_row) * width + covered.x as usize;
+                if covered.depth < depth[index] {
+                    depth[index] = covered.depth;
+                    cells[index] = Some((covered.fragment(), object_index));
+                }
+            });
         }
-    }
+    });
 
     framebuffer.shade(|index| {
         nearest[index].as_ref().map(|(fragment, object_index)| {

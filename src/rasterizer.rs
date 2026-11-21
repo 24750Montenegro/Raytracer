@@ -1,11 +1,12 @@
-use crate::fragment::Fragment;
-use crate::triangle::triangle;
+use std::ops::Range;
+
+use crate::triangle::{triangle, Covered};
 use crate::vertex::Vertex;
 
-pub fn rasterize(triangles: &[[Vertex; 3]], width: i32, height: i32) -> Vec<Fragment> {
-    let mut fragments = Vec::new();
+/// Recorre los triangulos y avisa cada pixel que cubren dentro de las filas
+/// `rows`.
+pub fn rasterize<'a>(triangles: &'a [[Vertex; 3]], width: i32, rows: Range<i32>, mut emit: impl FnMut(Covered<'a>)) {
     for [a, b, c] in triangles {
-        triangle(a, b, c, width, height, &mut fragments);
+        triangle(a, b, c, width, rows.clone(), &mut emit);
     }
-    fragments
 }

@@ -1,9 +1,14 @@
 // framebuffer.rs
 // La imagen en RAM y como se sube a la ventana.
 use raylib::prelude::*;
+use std::ops::Range;
 use std::sync::Mutex;
 
 use crate::pool::Pool;
+
+/// Filas por franja al rasterizar en paralelo. Franjas chicas reparten mejor
+/// un planeta que ocupa solo parte de la pantalla.
+const BAND_ROWS: usize = 8;
 
 pub struct Framebuffer {
     pub width: u32,
@@ -200,42 +205,44 @@ impl Framebuffer {
         Some(y as usize * self.width as usize + x as usize)
     }
 
-    /// Prueba de profundidad. Si el fragmento queda delante devuelve el
-    /// indice de su pixel.
-    pub fn depth_test(&mut self, x: i32, y: i32, depth: f32) -> Option<usize> {
-        let index = self.index(x, y)?;
+    /// Rasterizacion en paralelo. La imagen se corta en franjas de filas que
+    /// se reparten entre los hilos; `draw(filas, profundidad, celdas)` recibe
+    /// las filas de una franja con su parte del z-buffer y de `cells` (un dato
+    /// por pixel, como el fragmento mas cercano). Cada franja es de un solo
+    /// hilo, asi que dos hilos nunca escriben el mismo pixel.
+    pub fn rasterize_bands<T: Send>(
+        &mut self,
+        cells: &mut [T],
+        draw: impl Fn(Range<i32>, &mut [f32], &mut [T]) + Sync,
+    ) {
+        let band = self.width as usize * BAND_ROWS;
+        let Framebuffer { depth, pool, .. } = self;
+        let threads = pool.threads();
 
-        if depth < self.depth[index] {
-            self.depth[index] = depth;
-            Some(index)
-        } else {
-            None
+        let mut lots: Vec<Vec<(i32, &mut [f32], &mut [T])>> = (0..threads).map(|_| Vec::new()).collect();
+        for (index, (depth, cells)) in depth.chunks_mut(band).zip(cells.chunks_mut(band)).enumerate() {
+            lots[index % threads].push(((index * BAND_ROWS) as i32, depth, cells));
         }
+        // como en Pool::for_each_row, los candados nunca se disputan
+        let lots: Vec<Mutex<_>> = lots.into_iter().map(Mutex::new).collect();
+        let width = self.width as usize;
+        pool.run(&|thread| {
+            for (first_row, depth, cells) in lots[thread].lock().unwrap().iter_mut() {
+                let rows = *first_row..*first_row + (depth.len() / width) as i32;
+                draw(rows, depth, cells);
+            }
+        });
     }
 
     /// Pinta cada pixel con `color_at(indice)`; los que devuelven None quedan
-    /// con el fondo. Las filas se reparten entre los hilos intercaladas para
-    /// que todos reciban parte de la esfera.
+    /// con el fondo. Las filas se reparten entre los hilos.
     pub fn shade(&mut self, color_at: impl Fn(usize) -> Option<Color> + Sync) {
         let width = self.width as usize;
         let Framebuffer { pixels, pool, .. } = self;
-        let threads = pool.threads();
-
-        let mut work: Vec<Vec<(usize, &mut [u8])>> = (0..threads).map(|_| Vec::new()).collect();
-        for (y, row) in pixels.chunks_exact_mut(width * 4).enumerate() {
-            work[y % threads].push((y, row));
-        }
-        // cada hilo toma solo su propio lote, asi que los candados nunca se
-        // disputan: estan para que el compilador acepte prestar filas
-        // mutables a una funcion compartida
-        let work: Vec<Mutex<_>> = work.into_iter().map(Mutex::new).collect();
-
-        pool.run(&|thread| {
-            for (y, row) in work[thread].lock().unwrap().iter_mut() {
-                for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
-                    if let Some(color) = color_at(*y * width + x) {
-                        pixel.copy_from_slice(&[color.r, color.g, color.b, 255]);
-                    }
+        pool.for_each_row(pixels, width * 4, |y, row| {
+            for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                if let Some(color) = color_at(y * width + x) {
+                    pixel.copy_from_slice(&[color.r, color.g, color.b, 255]);
                 }
             }
         });

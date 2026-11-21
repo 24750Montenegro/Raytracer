@@ -4,6 +4,7 @@
 //   comparten una arista no dibujan dos veces el mismo pixel ni dejan un
 //   hueco entre ellos.
 use raylib::prelude::*;
+use std::ops::Range;
 
 use crate::fragment::Fragment;
 use crate::vertex::Vertex;
@@ -12,10 +13,50 @@ use crate::vertex::Vertex;
 /// degenerado: sus tres vertices estan practicamente sobre una misma linea
 const DEGENERATE_AREA: f32 = 1e-6;
 
-/// Relleno con coordenadas baricentricas. Ademas de la profundidad,
-/// interpola las posiciones que usa el fragment shader.
-pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, width: i32, height: i32, fragments: &mut Vec<Fragment>) {
+/// Un pixel que cubre el triangulo. Trae la profundidad para la prueba de
+/// profundidad, y el fragmento completo se arma solo si la pasa: la mayoria
+/// de los pixeles tapados nunca llegan a interpolar nada mas.
+pub struct Covered<'a> {
+    pub x: i32,
+    pub y: i32,
+    pub depth: f32,
+    weights: [f32; 3],
+    corners: [&'a Vertex; 3],
+}
+
+impl Covered<'_> {
+    /// Interpola las posiciones y la normal que usa el fragment shader.
+    pub fn fragment(&self) -> Fragment {
+        let [u, v, w] = self.weights;
+        let [a, b, c] = self.corners;
+        Fragment {
+            object_position: a.position * u + b.position * v + c.position * w,
+            world_position: a.world_position * u + b.world_position * v + c.world_position * w,
+            normal: a.normal * u + b.normal * v + c.normal * w,
+        }
+    }
+}
+
+/// Relleno con coordenadas baricentricas, solo en las filas `rows`: asi
+/// varios hilos pueden rellenar el mismo triangulo, cada uno en sus filas.
+pub fn triangle<'a>(
+    v1: &'a Vertex,
+    v2: &'a Vertex,
+    v3: &'a Vertex,
+    width: i32,
+    rows: Range<i32>,
+    emit: &mut impl FnMut(Covered<'a>),
+) {
     let (a, mut b, mut c) = (v1, v2, v3);
+
+    // lo mas barato primero: un triangulo que no toca estas filas se descarta
+    // sin calcular nada mas
+    let (ya, yb, yc) = (a.transformed_position.y, b.transformed_position.y, c.transformed_position.y);
+    let min_y = first_pixel(ya.min(yb).min(yc)).max(rows.start);
+    let max_y = last_pixel(ya.max(yb).max(yc)).min(rows.end - 1);
+    if min_y > max_y {
+        return;
+    }
 
     let mut area = edge_function(
         a.transformed_position,
@@ -35,8 +76,6 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, width: i32, height: i32, 
 
     let min_x = first_pixel(pa.x.min(pb.x).min(pc.x)).max(0);
     let max_x = last_pixel(pa.x.max(pb.x).max(pc.x)).min(width - 1);
-    let min_y = first_pixel(pa.y.min(pb.y).min(pc.y)).max(0);
-    let max_y = last_pixel(pa.y.max(pb.y).max(pc.y)).min(height - 1);
 
     let keep_bc = is_top_left(pb, pc);
     let keep_ca = is_top_left(pc, pa);
@@ -55,12 +94,12 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, width: i32, height: i32, 
 
             if covers(w_a, keep_bc) && covers(w_b, keep_ca) && covers(w_c, keep_ab) {
                 let (u, v, w) = (w_a * inverse_area, w_b * inverse_area, w_c * inverse_area);
-                fragments.push(Fragment {
-                    position: Vector2::new(x as f32, y as f32),
+                emit(Covered {
+                    x,
+                    y,
                     depth: pa.z * u + pb.z * v + pc.z * w,
-                    object_position: a.position * u + b.position * v + c.position * w,
-                    world_position: a.world_position * u + b.world_position * v + c.world_position * w,
-                    normal: a.normal * u + b.normal * v + c.normal * w,
+                    weights: [u, v, w],
+                    corners: [a, b, c],
                 });
             }
         }

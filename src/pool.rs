@@ -61,6 +61,26 @@ impl Pool {
         self.workers.len()
     }
 
+    /// Corta `cells` en filas de `row_len` y corre `work(fila, celdas)` en
+    /// paralelo. Las filas se reparten intercaladas para que todos los hilos
+    /// reciban parte de lo que haya en pantalla.
+    pub fn for_each_row<T: Send>(&self, cells: &mut [T], row_len: usize, work: impl Fn(usize, &mut [T]) + Sync) {
+        let threads = self.threads();
+        let mut lots: Vec<Vec<(usize, &mut [T])>> = (0..threads).map(|_| Vec::new()).collect();
+        for (y, row) in cells.chunks_mut(row_len).enumerate() {
+            lots[y % threads].push((y, row));
+        }
+        // cada hilo toma solo su propio lote, asi que los candados nunca se
+        // disputan: estan para que el compilador acepte prestar filas
+        // mutables a una funcion compartida
+        let lots: Vec<Mutex<_>> = lots.into_iter().map(Mutex::new).collect();
+        self.run(&|thread| {
+            for (y, row) in lots[thread].lock().unwrap().iter_mut() {
+                work(*y, row);
+            }
+        });
+    }
+
     /// Corre `task(i)` en cada hilo `i`, de 0 a `threads() - 1`, y espera a
     /// que terminen todos. `task` puede usar datos prestados del que llama,
     /// igual que con `std::thread::scope`.
