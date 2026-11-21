@@ -32,6 +32,9 @@ pub const PLANETS: &[Body] = &[
     Body { name: "Iris", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
 ];
 
+/// Radio de la orbita que comparten las dos estrellas, una frente a la otra.
+const STAR_ORBIT: f32 = 1.5;
+
 static ORBIT_MESHES: LazyLock<Vec<Vec<Vertex>>> = LazyLock::new(|| {
     orbit_radii()
         .map(|radius| crate::shaders::kit::ring_mesh(radius - 0.04, radius + 0.04, 180))
@@ -40,8 +43,7 @@ static ORBIT_MESHES: LazyLock<Vec<Vec<Vertex>>> = LazyLock::new(|| {
 
 /// Radios de todas las orbitas, centradas en el origen sobre el plano y = 0.
 pub fn orbit_radii() -> impl Iterator<Item = f32> {
-    // trayectorias distintas de la pareja binaria
-    [0.90, 2.05].into_iter().chain(PLANETS.iter().map(|planet| planet.orbit_radius))
+    std::iter::once(STAR_ORBIT).chain(PLANETS.iter().map(|planet| planet.orbit_radius))
 }
 
 fn shader_index(name: &str) -> usize {
@@ -77,9 +79,10 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
 pub fn star_poses(time: f32) -> Vec<BodyPose> {
     let angle = time * 1.35;
     let (sin, cos) = angle.sin_cos();
+    // misma orbita, separadas media vuelta
     let centers = [
-        Vector3::new(0.90 * cos, 0.0, 0.90 * sin),
-        Vector3::new(-2.05 * cos, 0.0, -2.05 * sin),
+        Vector3::new(STAR_ORBIT * cos, 0.0, STAR_ORBIT * sin),
+        Vector3::new(-STAR_ORBIT * cos, 0.0, -STAR_ORBIT * sin),
     ];
     let star_shader = &SHADERS[shader_index("estrella")];
     centers.into_iter().enumerate().map(|(index, center)| {

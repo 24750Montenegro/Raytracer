@@ -192,7 +192,7 @@ impl Flight {
         ]);
         uniforms.to_viewer = (self.eye - target).normalized();
         uniforms.time = self.time;
-        // La fuente puntual coincide con la estrella en el origen.
+        // Una sola luz puntual en el centro de la orbita de las dos estrellas.
         uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
 
         // nivel de detalle: la esfera del OBJ de lejos y la fina de cerca
