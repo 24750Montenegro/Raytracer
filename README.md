@@ -40,13 +40,33 @@ carpeta, con el frente hacia -z como lo exporta Blender.
 | **Mouse** / **←** **→** (**A** **D**) | mirar otra nave |
 | **Click** / **Enter** | despegar con esa nave |
 | **W** | acelerar; al soltarla la nave frena sola |
-| **Mouse** | apuntar: la nave gira hacia donde está el cursor (el centro de la pantalla es seguir derecho) |
+| **Mouse** | apuntar: la nave gira hacia donde está la mira (el centro de la pantalla es seguir derecho) |
+| **Tab** | mostrar las órbitas; otra vez, ver el sistema solar completo; otra vez, volver a la nave |
+| **Flechas** / **Z** **X** | en la vista del sistema: orbitar la cámara y acercar o alejar |
 | **R** | volver al punto de partida |
 | **Backspace** | volver a la selección de nave |
 
-La cámara va en tercera persona: persigue a la nave desde atrás con un poco
-de retraso, así que al girar se ve a la nave ladearse y desplazarse en
-pantalla. La nave no puede atravesar estrellas ni planetas.
+La cámara va en tercera persona, siempre a la misma distancia detrás de la
+nave. La dirección desde la que mira sigue a la nave con un poco de retraso,
+así que al girar se ve a la nave ladearse y desplazarse en pantalla. Durante
+el vuelo el puntero se reemplaza por una mira circular dibujada en CPU. La
+nave no puede atravesar estrellas ni planetas, que miden entre 16 y 23 veces
+su radio.
+
+En la vista del sistema solar completo la nave queda sin mando y se va
+frenando, mientras el sistema sigue girando; un círculo naranja marca dónde
+está.
+
+**Cascos.** Las naves no usan texturas de imagen: igual que los planetas, su
+superficie sale de funciones y ruido sobre la posición en el modelo
+(`src/shaders/ship.rs`). La de juanmontenegro es de paneles negros brillantes
+(celdas de Voronoi) con uniones y luces rojas encendidas, y una cola de metal
+plateado donde va el motor. La de alejandraaviles imita un broche de abeja:
+esmalte amarillo con franjas negras, cabeza negra con un aro dorado y alas de
+vidrio nacarado con venas doradas. El rasterizador guarda un solo fragmento
+por píxel, así que las alas no dejan ver lo que hay detrás: la transparencia
+se imita oscureciéndolas un poco de frente y aclarándolas de canto. Una nave
+nueva usa un casco genérico hasta que se le asigne uno en `src/ships.rs`.
 
 **Cómo crecen los planetas al acercarse.** El rasterizador es ortográfico:
 sin ayuda, un planeta se vería del mismo tamaño a cualquier distancia. En
@@ -57,6 +77,10 @@ vez su tamaño y su separación del centro de la pantalla. Es perspectiva
 "débil": todo el objeto usa la distancia de su centro, lo que en una esfera
 casi no se distingue de la perspectiva completa y le ahorra al rasterizador
 recortar triángulos contra el plano cercano y corregir la interpolación.
+Antes de escalarlo, la misma matriz gira el objeto para verlo por la línea
+que va de la cámara a su centro. Sin ese giro todo se vería en la dirección a
+la que apunta la cámara, y los anillos de JupyterNotebook se abrían y
+cerraban con solo mover el mouse.
 Las órbitas y las estrellas del fondo usan la misma cuenta, pero punto por punto.
 
 Lo que más pesa en CPU es la cantidad de píxeles que cubre un planeta y lo
