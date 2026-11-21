@@ -13,7 +13,9 @@ sale de funciones matemáticas y ruido.
 ## Cómo ejecutarlo
 
 ```sh
-cargo run --release
+cargo run --release                 # elegir nave y volar por el sistema solar
+cargo run --release -- --orbital    # el sistema solar con cámara orbital
+cargo run --release -- --shaders    # el laboratorio, un shader a la vez
 ```
 
 La primera compilación construye raylib desde C, así que necesita CMake y un
@@ -26,7 +28,44 @@ ventana (el número es el instante, en segundos):
 cargo run --release -- --capturas 2.0
 ```
 
-## Controles
+## Selección de nave y vuelo
+
+Al abrir el programa aparece **Selecciona tu nave**: cada OBJ terminado en
+`-reduced.obj` de `assets/models` gira en su propio marco para verlo antes de
+elegir. Para sumar una nave basta con dejar su versión reducida en esa
+carpeta, con el frente hacia +z como lo exporta Blender.
+
+| Control | Qué hace |
+|---|---|
+| **Mouse** / **←** **→** (**A** **D**) | mirar otra nave |
+| **Click** / **Enter** | despegar con esa nave |
+| **W** | acelerar; al soltarla la nave frena sola |
+| **Mouse** | apuntar: la nave gira hacia donde está el cursor (el centro de la pantalla es seguir derecho) |
+| **R** | volver al punto de partida |
+| **Backspace** | volver a la selección de nave |
+
+La cámara va en tercera persona: persigue a la nave desde atrás con un poco
+de retraso, así que al girar se ve a la nave ladearse y desplazarse en
+pantalla. La nave no puede atravesar estrellas ni planetas.
+
+**Cómo crecen los planetas al acercarse.** El rasterizador es ortográfico:
+sin ayuda, un planeta se vería del mismo tamaño a cualquier distancia. En
+vuelo, cada objeto lleva su propia matriz de proyección (`SceneObject::projection`)
+que, en el espacio de la cámara, escala x e y por `focal / distancia`, con la
+distancia medida hasta el centro del objeto (`src/flight.rs`). Así crecen a la
+vez su tamaño y su separación del centro de la pantalla. Es perspectiva
+"débil": todo el objeto usa la distancia de su centro, lo que en una esfera
+casi no se distingue de la perspectiva completa y le ahorra al rasterizador
+recortar triángulos contra el plano cercano y corregir la interpolación.
+Las órbitas y las estrellas del fondo usan la misma cuenta, pero punto por punto.
+
+Lo que más pesa en CPU es la cantidad de píxeles que cubre un planeta y lo
+caro que es su shader, no la matriz. Por eso un cuerpo que queda detrás de la
+cámara o fuera de la pantalla no se transforma ni se rasteriza, y los que se
+ven grandes cambian a una esfera más fina para que no se noten las facetas
+de `sphere.obj`.
+
+## Laboratorio de shaders (`--shaders`)
 
 | Tecla | Qué hace |
 |---|---|
