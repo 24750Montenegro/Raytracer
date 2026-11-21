@@ -28,7 +28,7 @@ use crate::{fit_unit_sphere, render_objects, SceneObject, Uniforms, HEIGHT, WIDT
 /// Campo de vision vertical, unos 60 grados.
 const FOV: f32 = 1.05;
 /// Lo que queda mas cerca de la camara que esto no se dibuja.
-const NEAR: f32 = 0.1;
+const NEAR: f32 = 0.02;
 
 const MAX_SPEED: f32 = 4.0;
 const ACCELERATION: f32 = 3.0;
@@ -43,18 +43,19 @@ const MAX_PITCH: f32 = 1.3;
 const MAX_ROLL: f32 = 0.6;
 const ROLL_STIFFNESS: f32 = 4.0;
 
-/// Radio de la nave. Un planeta mide entre 6 y 9 veces esto.
-const SHIP_SIZE: f32 = 0.09;
+/// Radio de la nave. Las estrellas y los planetas miden entre 16 y 23
+/// veces esto.
+const SHIP_SIZE: f32 = 0.035;
 /// Lo mas cerca que la nave puede pasar de la superficie de un cuerpo.
-const CLEARANCE: f32 = 0.15;
+const CLEARANCE: f32 = 0.06;
 /// Las lunas y anillos de un planeta llegan hasta aca, en radios del planeta.
 const BODY_EXTENT: f32 = 3.0;
 
-const CHASE_DISTANCE: f32 = 0.55;
-const CHASE_HEIGHT: f32 = 0.22;
+const CHASE_DISTANCE: f32 = 0.21;
+const CHASE_HEIGHT: f32 = 0.085;
 /// La camara mira a un punto delante de la nave: asi la nave queda en la
 /// parte de abajo de la pantalla y se ve hacia donde va.
-const LOOK_AHEAD: f32 = 1.0;
+const LOOK_AHEAD: f32 = 0.4;
 /// Que tan rapido alcanza la camara su lugar detras de la nave.
 const CHASE_STIFFNESS: f32 = 5.0;
 
