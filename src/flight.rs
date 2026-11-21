@@ -65,6 +65,10 @@ const START_PITCH: f32 = -0.08;
 /// Radio en pixeles a partir del cual un cuerpo se dibuja con la esfera fina.
 /// Por debajo alcanza la del OBJ: las facetas no llegan a verse.
 const DETAIL_RADIUS: f32 = 90.0;
+/// Radio en pixeles a partir del cual un cuerpo se sombrea grueso (un pixel
+/// de cada 2x2, el resto interpolado). Es cuando llena buena parte de la
+/// pantalla y su sombreado es lo que mas cuesta del cuadro.
+const COARSE_RADIUS: f32 = 160.0;
 
 const SKY_STARS: usize = 5000;
 const ORBIT_SEGMENTS: usize = 240;
@@ -226,8 +230,8 @@ impl Flight {
         uniforms.sun = Light::new(Vector3::zero(), Rgb::new(1.0, 0.92, 0.78), 1.4);
 
         // nivel de detalle: la esfera del OBJ de lejos y la fina de cerca
-        let coarse = (sphere, fit_unit_sphere(sphere));
-        let fine = (FINE_SPHERE.as_slice(), fit_unit_sphere(&FINE_SPHERE));
+        let obj_mesh = (sphere, fit_unit_sphere(sphere));
+        let fine_mesh = (FINE_SPHERE.as_slice(), fit_unit_sphere(&FINE_SPHERE));
         let mut objects = Vec::new();
         for body in self.stars.iter().chain(&self.planets) {
             if (self.eye - body.center).length() < body.radius {
@@ -236,12 +240,15 @@ impl Flight {
             let Some(at) = project(&view, body.center).filter(|at| at.on_screen(body.radius * BODY_EXTENT)) else {
                 continue;
             };
-            let (mesh, unit_sphere) = if body.radius * at.scale > DETAIL_RADIUS { &fine } else { &coarse };
+            let on_screen = body.radius * at.scale;
+            let (mesh, unit_sphere) = if on_screen > DETAIL_RADIUS { &fine_mesh } else { &obj_mesh };
             let model_matrix = multiply(&body.model_matrix, unit_sphere);
             let to_viewer = Some((self.eye - body.center).normalized());
+            let coarse_shading = on_screen > COARSE_RADIUS;
             objects.push(SceneObject {
                 projection: at.matrix(),
                 to_viewer,
+                coarse_shading,
                 ..SceneObject::body(mesh, model_matrix, body.shader)
             });
             // lunas y anillos se ven como su planeta, para no separarse de el
@@ -250,6 +257,7 @@ impl Flight {
                 objects.push(SceneObject {
                     projection: at.matrix(),
                     to_viewer,
+                    coarse_shading,
                     ..SceneObject::new(accessory.vertices, model_matrix, accessory.shade)
                 });
             }

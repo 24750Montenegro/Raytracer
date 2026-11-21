@@ -205,6 +205,10 @@ impl Framebuffer {
         Some(y as usize * self.width as usize + x as usize)
     }
 
+    pub fn pool(&self) -> &Pool {
+        &self.pool
+    }
+
     /// Rasterizacion en paralelo. La imagen se corta en franjas de filas que
     /// se reparten entre los hilos; `draw(filas, profundidad, celdas)` recibe
     /// las filas de una franja con su parte del z-buffer y de `cells` (un dato

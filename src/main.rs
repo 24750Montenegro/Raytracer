@@ -55,6 +55,10 @@ const INITIAL_SUN_ANGLE: f32 = -0.8;
 
 const SHIP_MARKER: Color = Color::new(255, 180, 80, 255);
 
+/// En el sombreado grueso, cuanto pueden diferir las muestras alrededor de
+/// un pixel (sumando los tres canales) antes de que se sombree entero.
+const COARSE_CONTRAST: f32 = 0.3;
+
 const SHADER_KEYS: [KeyboardKey; 9] = [
     KeyboardKey::KEY_ONE,
     KeyboardKey::KEY_TWO,
@@ -96,6 +100,10 @@ struct SceneObject<'a> {
     /// Si es una esfera cerrada: su mitad de atras no se ve nunca y se
     /// descarta antes de rasterizar.
     cull_back_faces: bool,
+    /// Sombrear un pixel de cada 2x2 e interpolar el resto. Para objetos que
+    /// ocupan mucha pantalla, donde el detalle del shader ya mide varios
+    /// pixeles y la interpolacion casi no se nota.
+    coarse_shading: bool,
 }
 
 impl<'a> SceneObject<'a> {
@@ -108,6 +116,7 @@ impl<'a> SceneObject<'a> {
             projection: Matrix::identity(),
             to_viewer: None,
             cull_back_faces: false,
+            coarse_shading: false,
         }
     }
 
@@ -346,19 +355,68 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
         }
     });
 
+    let shade_at = |fragment: &Fragment, object: &SceneObject| {
+        Rgb::from_vector(fragment_shader_with(
+            fragment,
+            uniforms,
+            &object.model_matrix,
+            object.shade,
+            object.normals,
+            object.to_viewer.unwrap_or(uniforms.to_viewer),
+        ))
+    };
+
+    // sombreado grueso: en los objetos que lo piden se sombrean solo los
+    // pixeles de columna y fila pares (las muestras) y el resto se interpola
+    let (columns, rows) = (width / 2, framebuffer.height as usize / 2);
+    let mut samples: Vec<Option<Rgb>> = Vec::new();
+    if objects.iter().any(|object| object.coarse_shading) {
+        samples = vec![None; columns * rows];
+        framebuffer.pool().for_each_row(&mut samples, columns, |row, line| {
+            for (column, sample) in line.iter_mut().enumerate() {
+                if let Some((fragment, object_index)) = &nearest[2 * row * width + 2 * column] {
+                    let object = &objects[*object_index];
+                    if object.coarse_shading {
+                        *sample = Some(shade_at(fragment, object));
+                    }
+                }
+            }
+        });
+    }
+    // promedio de las muestras que rodean al pixel. No sirve si alguna cae en
+    // otro objeto (un borde) o si difieren mucho entre si (una linea fina,
+    // como las grietas de Bocchi, que quedaria punteada): ahi el pixel se
+    // sombrea entero
+    let blended = |index: usize, object_index: usize| -> Option<Rgb> {
+        let around = |value: usize| if value % 2 == 0 { [value, value] } else { [value - 1, value + 1] };
+        let mut sum = Rgb::new(0.0, 0.0, 0.0);
+        let (mut darkest, mut brightest) = (f32::INFINITY, f32::NEG_INFINITY);
+        for y in around(index / width) {
+            for x in around(index % width) {
+                if x / 2 >= columns || y / 2 >= rows {
+                    return None;
+                }
+                if !matches!(&nearest[y * width + x], Some((_, object)) if *object == object_index) {
+                    return None;
+                }
+                let sample = samples[(y / 2) * columns + x / 2]?;
+                let brightness = sample.r + sample.g + sample.b;
+                darkest = darkest.min(brightness);
+                brightest = brightest.max(brightness);
+                sum = sum + sample;
+            }
+        }
+        (brightest - darkest < COARSE_CONTRAST).then(|| sum * 0.25)
+    };
+
     framebuffer.shade(|index| {
-        nearest[index].as_ref().map(|(fragment, object_index)| {
-            let object = &objects[*object_index];
-            Rgb::from_vector(fragment_shader_with(
-                fragment,
-                uniforms,
-                &object.model_matrix,
-                object.shade,
-                object.normals,
-                object.to_viewer.unwrap_or(uniforms.to_viewer),
-            ))
-            .to_display()
-        })
+        let (fragment, object_index) = nearest[index].as_ref()?;
+        let object = &objects[*object_index];
+        let color = object.coarse_shading
+            .then(|| blended(index, *object_index))
+            .flatten()
+            .unwrap_or_else(|| shade_at(fragment, object));
+        Some(color.to_display())
     });
 }
 
