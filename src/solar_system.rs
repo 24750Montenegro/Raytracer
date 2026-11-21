@@ -18,6 +18,7 @@ pub struct Body {
 pub struct BodyPose {
     pub name: &'static str,
     pub center: Vector3,
+    pub radius: f32,
     pub model_matrix: Matrix,
     pub shader: fn(&crate::shaders::Frag) -> Vector3,
     pub accessories: Vec<Accessory>,
@@ -32,13 +33,16 @@ pub const PLANETS: &[Body] = &[
 ];
 
 static ORBIT_MESHES: LazyLock<Vec<Vec<Vertex>>> = LazyLock::new(|| {
-    let mut radii = Vec::with_capacity(PLANETS.len() + 2);
-    radii.extend([0.90, 2.05]); // trayectorias distintas de la pareja binaria
-    radii.extend(PLANETS.iter().map(|planet| planet.orbit_radius));
-    radii.into_iter()
+    orbit_radii()
         .map(|radius| crate::shaders::kit::ring_mesh(radius - 0.04, radius + 0.04, 180))
         .collect()
 });
+
+/// Radios de todas las orbitas, centradas en el origen sobre el plano y = 0.
+pub fn orbit_radii() -> impl Iterator<Item = f32> {
+    // trayectorias distintas de la pareja binaria
+    [0.90, 2.05].into_iter().chain(PLANETS.iter().map(|planet| planet.orbit_radius))
+}
 
 fn shader_index(name: &str) -> usize {
     SHADERS.iter().position(|shader| shader.name == name)
@@ -62,6 +66,7 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
         BodyPose {
             name: body.name,
             center,
+            radius: body.radius,
             model_matrix,
             shader: shader.shade,
             accessories,
@@ -88,6 +93,7 @@ pub fn star_poses(time: f32) -> Vec<BodyPose> {
         BodyPose {
             name: if index == 0 { "Lunan't" } else { "Asterión" },
             center,
+            radius,
             model_matrix,
             shader: if index == 0 { star_shader.shade } else { companion_star_shade },
             accessories: Vec::new(),

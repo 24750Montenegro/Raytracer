@@ -90,6 +90,21 @@ pub fn rotation_z(angle: f32) -> Matrix {
 }
 
 
+/// Matriz de vista de una camara en `eye` que mira hacia `target`. Sus filas
+/// son los ejes de la camara (derecha, arriba y atras), asi que pasa un punto
+/// del mundo a coordenadas de la camara, que mira hacia -z.
+pub fn look_at(eye: Vector3, target: Vector3, up: Vector3) -> Matrix {
+    let back = (eye - target).normalized();
+    let right = up.cross(back).normalized();
+    let up = back.cross(right);
+    new_matrix4([
+        [right.x, right.y, right.z, -right.dot(eye)],
+        [up.x, up.y, up.z, -up.dot(eye)],
+        [back.x, back.y, back.z, -back.dot(eye)],
+        [0.0, 0.0, 0.0, 1.0],
+    ])
+}
+
 /// matriz de modelo
 
 pub fn create_model_matrix(translation: Vector3, scale: f32, rotation: Vector3) -> Matrix {
