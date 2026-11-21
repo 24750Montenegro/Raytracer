@@ -24,19 +24,19 @@ pub struct BodyPose {
 }
 
 pub const PLANETS: &[Body] = &[
-    Body { name: "Bocchi", shader_name: "planeta rocoso", orbit_radius: 3.1, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68 },
-    Body { name: "JupyterNotebook", shader_name: "gigante gaseoso", orbit_radius: 5.2, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82 },
-    Body { name: "Flora", shader_name: "flora", orbit_radius: 7.3, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72 },
-    Body { name: "Veridia", shader_name: "veridia", orbit_radius: 9.5, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78 },
-    Body { name: "Iris", shader_name: "iris", orbit_radius: 11.6, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
+    Body { name: "Bocchi", shader_name: "planeta rocoso", orbit_radius: 4.0, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68 },
+    Body { name: "JupyterNotebook", shader_name: "gigante gaseoso", orbit_radius: 6.3, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82 },
+    Body { name: "Flora", shader_name: "flora", orbit_radius: 8.6, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72 },
+    Body { name: "Veridia", shader_name: "veridia", orbit_radius: 10.9, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78 },
+    Body { name: "Iris", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
 ];
 
 static ORBIT_MESHES: LazyLock<Vec<Vec<Vertex>>> = LazyLock::new(|| {
     let mut radii = Vec::with_capacity(PLANETS.len() + 2);
-    radii.extend([0.48, 0.92]); // trayectorias distintas de la pareja binaria
+    radii.extend([0.90, 2.05]); // trayectorias distintas de la pareja binaria
     radii.extend(PLANETS.iter().map(|planet| planet.orbit_radius));
     radii.into_iter()
-        .map(|radius| crate::shaders::kit::ring_mesh(radius - 0.018, radius + 0.018, 160))
+        .map(|radius| crate::shaders::kit::ring_mesh(radius - 0.04, radius + 0.04, 180))
         .collect()
 });
 
@@ -70,16 +70,16 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
 }
 
 pub fn star_poses(time: f32) -> Vec<BodyPose> {
-    let angle = time * 1.15;
+    let angle = time * 1.35;
     let (sin, cos) = angle.sin_cos();
     let centers = [
-        Vector3::new(0.48 * cos, 0.0, 0.48 * sin),
-        Vector3::new(-0.92 * cos, 0.0, -0.92 * sin),
+        Vector3::new(0.90 * cos, 0.0, 0.90 * sin),
+        Vector3::new(-2.05 * cos, 0.0, -2.05 * sin),
     ];
     let star_shader = &SHADERS[shader_index("estrella")];
     centers.into_iter().enumerate().map(|(index, center)| {
-        let radius = if index == 0 { 0.60 } else { 0.48 };
-        let spin = if index == 0 { 0.12 } else { -0.16 };
+        let radius = if index == 0 { 0.72 } else { 0.56 };
+        let spin = if index == 0 { 0.25 } else { -0.25 };
         let model_matrix = create_model_matrix(
             center,
             radius,
