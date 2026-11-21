@@ -19,7 +19,7 @@ use crate::framebuffer::{star_hash, Framebuffer};
 use crate::light::Light;
 use crate::matrix::{create_model_matrix, look_at, multiply, new_matrix4};
 use crate::shaders::kit::sphere_mesh;
-use crate::shaders::{ship, transform, Normals};
+use crate::shaders::{transform, Normals};
 use crate::ships::Ship;
 use crate::solar_system::{self, BodyPose};
 use crate::vertex::Vertex;
@@ -254,7 +254,7 @@ impl Flight {
                 normals: Normals::Mesh,
                 projection: at.matrix(),
                 to_viewer: Some((self.eye - self.position).normalized()),
-                ..SceneObject::new(&ship.vertices, self.ship_matrix(ship), ship::shade)
+                ..SceneObject::new(&ship.vertices, self.ship_matrix(ship), ship.hull)
             });
         }
 

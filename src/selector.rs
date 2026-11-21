@@ -5,7 +5,7 @@ use raylib::prelude::*;
 
 use crate::framebuffer::Framebuffer;
 use crate::matrix::{create_model_matrix, multiply, new_matrix4, rotation_x};
-use crate::shaders::{ship, Normals};
+use crate::shaders::Normals;
 use crate::ships::Ship;
 use crate::{render_objects, sun, SceneObject, Uniforms, HEIGHT, INITIAL_SUN_ANGLE, WIDTH};
 
@@ -110,7 +110,7 @@ impl Selector {
                 );
                 SceneObject {
                     normals: Normals::Mesh,
-                    ..SceneObject::new(&ship.vertices, model_matrix, ship::shade)
+                    ..SceneObject::new(&ship.vertices, model_matrix, ship.hull)
                 }
             })
             .collect();

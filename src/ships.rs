@@ -7,6 +7,7 @@ use std::path::Path;
 
 use crate::fit_unit_sphere;
 use crate::obj::Obj;
+use crate::shaders::{ship, Frag};
 use crate::vertex::Vertex;
 
 const MODELS_DIR: &str = "assets/models";
@@ -18,6 +19,7 @@ pub struct Ship {
     /// Lleva la malla a una esfera de radio 1 centrada en el origen, con la
     /// nariz hacia -z (hacia donde mira la camara).
     pub fit: Matrix,
+    pub hull: fn(&Frag) -> Vector3,
 }
 
 impl Ship {
@@ -53,12 +55,25 @@ fn load(path: &Path) -> Option<Ship> {
     let mut vertices = obj.get_vertex_array();
     fill_missing_normals(&mut vertices);
 
+    let name = file_name(path).trim_end_matches(REDUCED_SUFFIX).to_string();
     Some(Ship {
-        name: file_name(path).trim_end_matches(REDUCED_SUFFIX).to_string(),
+        hull: hull(&name),
+        name,
         // Blender ya exporta con el frente del modelo hacia -z
         fit: fit_unit_sphere(&vertices),
         vertices,
     })
+}
+
+/// El casco de cada nave segun su archivo; las demas usan el generico.
+fn hull(name: &str) -> fn(&Frag) -> Vector3 {
+    if name.contains("juanmontenegro") {
+        ship::panels
+    } else if name.contains("alejandraaviles") {
+        ship::bee
+    } else {
+        ship::shade
+    }
 }
 
 fn file_name(path: &Path) -> &str {
