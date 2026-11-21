@@ -10,6 +10,10 @@ sale de funciones matemáticas y ruido.
 > El laboratorio anterior (la nave, los rellenos y sus mediciones) está en la
 > rama `feat/obj-rendering`.
 
+## Demo
+
+![Demo: selección de nave y vuelo por el sistema solar](assets/videos/space-travel-demo.gif)
+
 ## Cómo ejecutarlo
 
 ```sh
