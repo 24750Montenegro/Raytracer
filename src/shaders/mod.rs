@@ -30,6 +30,8 @@ pub struct Accessory {
     pub vertices: &'static [Vertex],
     pub model_matrix: Matrix,
     pub shade: fn(&Frag) -> Vector3,
+    /// Una luna es una esfera; un anillo es plano y trae la normal en la malla.
+    pub normals: Normals,
 }
 
 /// Lo que recorre Tab, en orden. Un shader nuevo se agrega aca.
@@ -59,7 +61,14 @@ pub struct Frag<'a> {
     pub light: f32,
     /// Segundos desde que arranco el programa (Espacio lo pausa).
     pub time: f32,
-    point: Vector3,
+    /// El punto en coordenadas del mundo.
+    pub point: Vector3,
+    /// Donde queda en el mundo el origen del modelo: para un anillo, el
+    /// centro de su planeta.
+    pub center: Vector3,
+    /// Cuanto mide en el mundo una unidad del modelo: para un anillo, el
+    /// radio de su planeta.
+    pub size: f32,
     uniforms: &'a Uniforms,
 }
 
@@ -155,6 +164,8 @@ pub fn fragment_shader_with(
         light: normal.dot(to_sun).max(0.0),
         time: uniforms.time,
         point: fragment.world_position,
+        center: transform(model_matrix, Vector3::zero(), 1.0),
+        size: transform(model_matrix, Vector3::new(1.0, 0.0, 0.0), 0.0).length(),
         uniforms,
     };
 

@@ -1,5 +1,5 @@
 use super::kit::*;
-use super::Accessory;
+use super::{Accessory, Normals};
 
 use std::sync::LazyLock;
 
@@ -104,6 +104,7 @@ pub fn accessories(time: f32) -> Vec<Accessory> {
             } else {
                 shade_yellow_moon
             },
+            normals: Normals::Sphere,
         })
         .collect()
 }

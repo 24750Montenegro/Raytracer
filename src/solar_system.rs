@@ -2,7 +2,7 @@ use raylib::prelude::*;
 use std::sync::LazyLock;
 
 use crate::matrix::{create_model_matrix, multiply, rotation_y};
-use crate::shaders::{Accessory, SHADERS};
+use crate::shaders::{Accessory, Normals, SHADERS};
 use crate::vertex::Vertex;
 
 pub struct Body {
@@ -15,6 +15,9 @@ pub struct Body {
     pub orbit_phase: f32, // fase inicial en radianes
     pub spin_speed: f32,  // radianes por segundo
     pub radius: f32,
+    /// Inclinacion del eje, en radianes, fija en el espacio como la de la
+    /// Tierra: a lo largo de la orbita el sol le da mas de arriba o de abajo.
+    pub axial_tilt: f32,
 }
 
 pub struct BodyPose {
@@ -28,11 +31,11 @@ pub struct BodyPose {
 }
 
 pub const PLANETS: &[Body] = &[
-    Body { name: "Bocchi", kind: "Planeta rocoso", shader_name: "planeta rocoso", orbit_radius: 4.0, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68 },
-    Body { name: "JupyterNotebook", kind: "Gigante gaseoso", shader_name: "gigante gaseoso", orbit_radius: 6.3, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82 },
-    Body { name: "Flora", kind: "Planeta", shader_name: "flora", orbit_radius: 8.6, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72 },
-    Body { name: "Veridia", kind: "Planeta rocoso", shader_name: "veridia", orbit_radius: 10.9, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78 },
-    Body { name: "Iris", kind: "Gigante gaseoso", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70 },
+    Body { name: "Bocchi", kind: "Planeta rocoso", shader_name: "planeta rocoso", orbit_radius: 4.0, orbit_speed: 0.48, orbit_phase: 0.35, spin_speed: 0.8, radius: 0.68, axial_tilt: 0.0 },
+    Body { name: "JupyterNotebook", kind: "Gigante gaseoso", shader_name: "gigante gaseoso", orbit_radius: 6.3, orbit_speed: 0.29, orbit_phase: 2.45, spin_speed: 0.55, radius: 0.82, axial_tilt: 0.47 },
+    Body { name: "Flora", kind: "Planeta", shader_name: "flora", orbit_radius: 8.6, orbit_speed: 0.21, orbit_phase: 4.25, spin_speed: 0.32, radius: 0.72, axial_tilt: 0.0 },
+    Body { name: "Veridia", kind: "Planeta rocoso", shader_name: "veridia", orbit_radius: 10.9, orbit_speed: 0.15, orbit_phase: 0.95, spin_speed: 0.24, radius: 0.78, axial_tilt: 0.0 },
+    Body { name: "Iris", kind: "Gigante gaseoso", shader_name: "iris", orbit_radius: 13.2, orbit_speed: 0.11, orbit_phase: 3.25, spin_speed: 0.20, radius: 0.70, axial_tilt: 0.0 },
 ];
 
 /// Radio de la orbita que comparten las dos estrellas, una frente a la otra.
@@ -60,7 +63,7 @@ pub fn planet_poses(time: f32) -> Vec<BodyPose> {
         let (sin, cos) = orbit.sin_cos();
         let center = Vector3::new(body.orbit_radius * cos, 0.0, body.orbit_radius * sin);
         let model_matrix = multiply(
-            &create_model_matrix(center, body.radius, Vector3::zero()),
+            &create_model_matrix(center, body.radius, Vector3::new(body.axial_tilt, 0.0, 0.0)),
             &rotation_y(body.spin_speed * time),
         );
         let shader = &SHADERS[shader_index(body.shader_name)];
@@ -114,6 +117,7 @@ pub fn orbit_guides() -> Vec<Accessory> {
         vertices: mesh.as_slice(),
         model_matrix: create_model_matrix(Vector3::zero(), 1.0, Vector3::zero()),
         shade: orbit_guide_shade,
+        normals: Normals::Sphere,
     }).collect()
 }
 

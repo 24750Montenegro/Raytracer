@@ -255,12 +255,11 @@ impl Flight {
             });
             // lunas y anillos se ven como su planeta, para no separarse de el
             for accessory in &body.accessories {
-                let model_matrix = accessory.model_matrix.clone();
                 objects.push(SceneObject {
                     projection: at.matrix(),
                     to_viewer,
                     coarse_shading,
-                    ..SceneObject::new(accessory.vertices, model_matrix, accessory.shade)
+                    ..SceneObject::accessory(accessory)
                 });
             }
         }

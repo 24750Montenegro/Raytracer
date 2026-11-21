@@ -177,7 +177,10 @@ pub fn sphere_mesh(slices: u32, stacks: u32) -> Vec<Vertex> {
     vertices
 }
 
+/// Anillo plano en y = 0. Cada vertice trae la normal del plano, para
+/// sombrearlo con `Normals::Mesh`.
 pub fn ring_mesh(inner_radius: f32, outer_radius: f32, segments: u32) -> Vec<Vertex> {
+    let up = Vector3::new(0.0, 1.0, 0.0);
     let mut vertices = Vec::with_capacity((segments * 6) as usize);
     for segment in 0..segments {
         let angle_a = TAU * segment as f32 / segments as f32;
@@ -188,8 +191,9 @@ pub fn ring_mesh(inner_radius: f32, outer_radius: f32, segments: u32) -> Vec<Ver
         let outer_a = point(outer_radius, angle_a);
         let inner_b = point(inner_radius, angle_b);
         let outer_b = point(outer_radius, angle_b);
-        push_triangle(&mut vertices, inner_a, outer_a, inner_b);
-        push_triangle(&mut vertices, inner_b, outer_a, outer_b);
+        for position in [inner_a, outer_a, inner_b, inner_b, outer_a, outer_b] {
+            vertices.push(Vertex::new(position, up, raylib::math::Vector2::zero()));
+        }
     }
     vertices
 }

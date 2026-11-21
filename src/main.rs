@@ -128,6 +128,14 @@ impl<'a> SceneObject<'a> {
         }
     }
 
+    /// Una luna, un anillo o cualquier otra malla que acompana a un cuerpo.
+    fn accessory(accessory: &Accessory) -> Self {
+        SceneObject {
+            normals: accessory.normals,
+            ..SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade)
+        }
+    }
+
     /// Una estrella o un planeta: esferas cerradas, sin cara de atras visible.
     fn body(vertices: &'a [Vertex], model_matrix: Matrix, shade: fn(&Frag) -> Vector3) -> Self {
         SceneObject { cull_back_faces: true, ..SceneObject::new(vertices, model_matrix, shade) }
@@ -237,11 +245,11 @@ fn draw_system(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, sphere: &
     for planet in &planets {
         objects.push(SceneObject::body(sphere, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
         for accessory in &planet.accessories {
-            objects.push(SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade));
+            objects.push(SceneObject::accessory(accessory));
         }
     }
     for guide in &orbit_guides {
-        objects.push(SceneObject::new(guide.vertices, guide.model_matrix.clone(), guide.shade));
+        objects.push(SceneObject::accessory(guide));
     }
     framebuffer.clear_with_starfield();
     render_objects(framebuffer, uniforms, &objects);
@@ -310,9 +318,7 @@ fn render(
     accessories: &[Accessory],
 ) {
     let mut objects = vec![SceneObject::body(vertex_array, uniforms.model_matrix.clone(), uniforms.shader)];
-    objects.extend(accessories.iter().map(|object| {
-        SceneObject::new(object.vertices, object.model_matrix.clone(), object.shade)
-    }));
+    objects.extend(accessories.iter().map(SceneObject::accessory));
     render_objects(framebuffer, uniforms, &objects);
 }
 

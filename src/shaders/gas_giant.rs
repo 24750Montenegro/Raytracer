@@ -1,5 +1,5 @@
 use super::kit::*;
-use super::Accessory;
+use super::{Accessory, Normals};
 
 use std::sync::LazyLock;
 
@@ -8,6 +8,13 @@ const FALL_SPEED: f32 = 0.80;
 const TURBULENCE: f32 = 0.32;
 const COLOR_SPEED: f32 = 0.90;
 const RING_COLOR: Vector3 = Vector3::new(0.96, 0.98, 1.0);
+/// Cuanta luz llega al lado oscuro de un anillo: sus particulas de hielo
+/// dispersan un poco de la luz que les da del otro lado, y bastante mas
+/// cuando se mira hacia el sol a traves de ellas (a contraluz).
+const RING_TRANSMISSION: f32 = 0.25;
+const RING_BACKLIT: f32 = 0.9;
+/// Franjas del hielo por unidad de distancia al centro del planeta.
+const RING_BANDS: f32 = 14.0;
 
 static INNER_RING: LazyLock<Vec<Vertex>> = LazyLock::new(|| ring_mesh(1.18, 1.31, 128));
 static OUTER_RING: LazyLock<Vec<Vertex>> = LazyLock::new(|| ring_mesh(1.40, 1.56, 128));
@@ -60,20 +67,55 @@ pub fn accessories(time: f32) -> Vec<Accessory> {
             vertices: INNER_RING.as_slice(),
             model_matrix,
             shade: shade_ring,
+            normals: Normals::Mesh,
         },
         Accessory {
             vertices: OUTER_RING.as_slice(),
             model_matrix,
             shade: shade_ring,
+            normals: Normals::Mesh,
         },
     ]
 }
 
+/// Hielo, como los anillos de Saturno: brillan donde les da el sol, con
+/// franjas finas segun la distancia al planeta, y se apagan en su sombra.
 fn shade_ring(f: &Frag) -> Vector3 {
-    let normal = if f.to_sun.y >= 0.0 {
-        Vector3::new(0.0, 1.0, 0.0)
-    } else {
-        Vector3::new(0.0, -1.0, 0.0)
-    };
-    f.shade(RING_COLOR, &Material::matte(), normal)
+    let radius = (f.p.x * f.p.x + f.p.z * f.p.z).sqrt();
+    let bands = 0.65 + 0.35 * fbm(Vector3::new(radius * RING_BANDS, 0.0, 0.0), 3);
+
+    // la cara del anillo que mira al sol; la luz le llega de ese lado
+    let sun_side = if f.normal.dot(f.to_sun) >= 0.0 { f.normal } else { -f.normal };
+    let ice = Material::new(Albedo::new(0.85, 0.3), 24.0);
+    let lambert = f.shade(RING_COLOR * bands, &ice, sun_side);
+
+    // Un anillo no es una superficie mate sino una nube de trozos de hielo.
+    // Para eso se usa la ley de Lommel-Seeliger, mu0 / (mu0 + mu): Lambert
+    // por 1 / (mu0 + mu). Cuanto mas de canto se lo mira, mas trozos se ven
+    // iluminados uno detras del otro, y mas brilla.
+    let incidence = sun_side.dot(f.to_sun).max(0.0);
+    let emission = sun_side.dot(f.to_viewer).abs();
+    let mut color = lambert * (2.0 / (incidence + emission).max(0.05)).min(3.0);
+
+    // desde el lado sin sol solo se ve la luz que atraviesa el hielo, que es
+    // mucha cuando el sol queda detras del anillo
+    if sun_side.dot(f.to_viewer) < 0.0 {
+        let backlit = (-f.to_viewer.dot(f.to_sun)).max(0.0).powf(4.0);
+        color = color * (RING_TRANSMISSION + RING_BACKLIT * backlit);
+    }
+    color * (1.0 - 0.9 * planet_shadow(f))
+}
+
+/// 1 donde el planeta le tapa el sol al anillo y 0 donde no, con el borde de
+/// la sombra suavizado.
+fn planet_shadow(f: &Frag) -> f32 {
+    let offset = f.point - f.center;
+    let along = offset.dot(f.to_sun);
+    // si el sol queda del lado de afuera, el planeta no esta en el camino
+    if along >= 0.0 {
+        return 0.0;
+    }
+    // que tan cerca del centro del planeta pasa el rayo hacia el sol
+    let miss = (offset.dot(offset) - along * along).max(0.0).sqrt();
+    1.0 - smoothstep(f.size * 0.96, f.size * 1.04, miss)
 }
