@@ -114,6 +114,14 @@ fn sun(angle: f32) -> Light {
     Light::new(direction * SUN_DISTANCE, Rgb::new(1.0, 0.97, 0.92), 1.15)
 }
 
+fn transform_point(matrix: &Matrix, point: Vector3) -> Vector3 {
+    Vector3::new(
+        matrix.m0 * point.x + matrix.m4 * point.y + matrix.m8 * point.z + matrix.m12,
+        matrix.m1 * point.x + matrix.m5 * point.y + matrix.m9 * point.z + matrix.m13,
+        matrix.m2 * point.x + matrix.m6 * point.y + matrix.m10 * point.z + matrix.m14,
+    )
+}
+
 /// Lleva el modelo a una esfera de radio 1 centrada en el origen, sin tocar
 /// sus vertices.
 fn fit_unit_sphere(vertices: &[Vertex]) -> Matrix {
@@ -230,8 +238,8 @@ fn main() {
     println!("triangulos: {}", vertex_array.len() / 3);
 
     let initial_camera = Camera {
-        yaw: 0.0,
-        pitch: if solar_mode { 1.12 } else { 0.25 },
+        yaw: if solar_mode { 0.22 } else { 0.0 },
+        pitch: if solar_mode { 0.82 } else { 0.25 },
         zoom: if solar_mode { 0.035 * WIDTH.min(HEIGHT) as f32 } else { FIT * WIDTH.min(HEIGHT) as f32 },
     };
 
@@ -345,8 +353,24 @@ fn main() {
                     });
                 }
                 let start = Instant::now();
-                framebuffer.clear();
+                framebuffer.clear_with_starfield();
                 render_objects(&mut framebuffer, &uniforms, &objects);
+                for (index, star) in stars.iter().enumerate() {
+                    let view_position = transform_point(&uniforms.view_matrix, star.center);
+                    let screen_position = transform_point(&uniforms.viewport_matrix, view_position);
+                    let glow_color = if index == 0 {
+                        Color::new(135, 190, 255, 255)
+                    } else {
+                        Color::new(90, 205, 255, 255)
+                    };
+                    framebuffer.add_glow(
+                        screen_position.x as i32,
+                        screen_position.y as i32,
+                        camera.zoom * 1.50,
+                        glow_color,
+                        0.75,
+                    );
+                }
                 let elapsed = start.elapsed().as_secs_f32() * 1000.0;
                 window.set_window_title(
                     &raylib_thread,
