@@ -276,11 +276,13 @@ fn run_game(
             if let Some(chosen) = selector.update(window, dt) {
                 flight = Some(Flight::new(chosen));
                 // el mouse arranca en el centro para no salir girando hacia
-                // donde estaba la nave elegida
+                // donde estaba la nave elegida, y la mira reemplaza al puntero
                 window.set_mouse_position(Vector2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0));
+                window.hide_cursor();
             }
         } else if window.is_key_pressed(KeyboardKey::KEY_BACKSPACE) {
             flight = None;
+            window.show_cursor();
         }
 
         let start = Instant::now();

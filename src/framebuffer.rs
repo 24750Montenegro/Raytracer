@@ -141,6 +141,49 @@ impl Framebuffer {
         }
     }
 
+    /// Anillo de `radius` pixeles de radio y `thickness` de grosor, con el
+    /// borde suavizado y mezclado con lo que ya hay segun `alpha`. Con radio
+    /// 0 es un disco. `visible(angulo)` elige que partes se dibujan, para
+    /// hacer arcos y marcas; el angulo sale de atan2, 0 a la derecha.
+    pub fn ring(
+        &mut self,
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        thickness: f32,
+        color: Color,
+        alpha: f32,
+        visible: impl Fn(f32) -> bool,
+    ) {
+        let reach = radius + thickness;
+        let min_x = (center_x - reach).floor().max(0.0) as i32;
+        let max_x = (center_x + reach).ceil().min(self.width as f32 - 1.0) as i32;
+        let min_y = (center_y - reach).floor().max(0.0) as i32;
+        let max_y = (center_y + reach).ceil().min(self.height as f32 - 1.0) as i32;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let dx = x as f32 + 0.5 - center_x;
+                let dy = y as f32 + 0.5 - center_y;
+                // cuanto del pixel cubre el trazo: 1 adentro, 0 a un pixel del borde
+                let distance = (dx * dx + dy * dy).sqrt();
+                let coverage = (thickness / 2.0 + 0.5 - (distance - radius).abs()).clamp(0.0, 1.0);
+                if coverage > 0.0 && visible(dy.atan2(dx)) {
+                    self.blend(x, y, color, coverage * alpha);
+                }
+            }
+        }
+    }
+
+    /// Mezcla `color` sobre el pixel: 0 lo deja igual, 1 lo reemplaza.
+    fn blend(&mut self, x: i32, y: i32, color: Color, amount: f32) {
+        let Some(index) = self.index(x, y) else { return };
+        let pixel = &mut self.pixels[index * 4..index * 4 + 3];
+        for (channel, target) in pixel.iter_mut().zip([color.r, color.g, color.b]) {
+            *channel = (*channel as f32 + (target as f32 - *channel as f32) * amount) as u8;
+        }
+    }
+
     /// Borde de un rectangulo, `thickness` pixeles hacia adentro.
     pub fn outline(&mut self, x: i32, y: i32, width: i32, height: i32, thickness: i32, color: Color) {
         self.fill_rect(x, y, width, thickness, color);

@@ -69,7 +69,9 @@ const DETAIL_RADIUS: f32 = 90.0;
 const SKY_STARS: usize = 5000;
 const ORBIT_SEGMENTS: usize = 240;
 const ORBIT_COLOR: Color = Color::new(46, 58, 76, 255);
-const RETICLE_COLOR: Color = Color::new(110, 170, 255, 255);
+const RETICLE_COLOR: Color = Color::new(110, 220, 255, 255);
+/// Radianes por segundo que giran los arcos de la mira.
+const RETICLE_SPIN: f32 = 0.9;
 
 /// Esfera con mas triangulos para los cuerpos que se ven grandes.
 static FINE_SPHERE: LazyLock<Vec<Vertex>> = LazyLock::new(|| sphere_mesh(48, 32));
@@ -255,12 +257,13 @@ impl Flight {
             }
         }
 
-        // mira: un punto en el centro y un cuadro donde apunta el mouse
-        let (center_x, center_y) = (WIDTH / 2, HEIGHT / 2);
-        framebuffer.fill_rect(center_x - 1, center_y - 1, 3, 3, RETICLE_COLOR);
-        let aim_x = center_x + (self.aim.x * WIDTH as f32 / 2.0) as i32;
-        let aim_y = center_y + (self.aim.y * HEIGHT as f32 / 2.0) as i32;
-        framebuffer.outline(aim_x - 8, aim_y - 8, 17, 17, 2, RETICLE_COLOR);
+        // un punto tenue en el centro (por donde se sigue derecho) y la mira
+        // donde esta el mouse, que reemplaza al puntero
+        let (center_x, center_y) = (WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0);
+        framebuffer.ring(center_x, center_y, 0.0, 3.0, RETICLE_COLOR, 0.5, |_| true);
+        let aim_x = center_x + self.aim.x * WIDTH as f32 / 2.0;
+        let aim_y = center_y + self.aim.y * HEIGHT as f32 / 2.0;
+        draw_reticle(framebuffer, aim_x, aim_y, self.time);
     }
 
     pub fn overlay(&self, d: &mut RaylibDrawHandle, ship: &Ship) {
@@ -372,6 +375,24 @@ impl Projected {
         let r = radius * self.scale;
         self.x + r >= 0.0 && self.x - r < WIDTH as f32 && self.y + r >= 0.0 && self.y - r < HEIGHT as f32
     }
+}
+
+/// Mira circular: cuatro arcos que giran despacio, un anillo fino adentro,
+/// marcas fijas hacia afuera en los cuatro puntos cardinales y un punto en el
+/// centro.
+fn draw_reticle(framebuffer: &mut Framebuffer, x: f32, y: f32, time: f32) {
+    const QUARTER: f32 = TAU / 4.0;
+    let spin = time * RETICLE_SPIN;
+    // cada cuarto de vuelta lleva un arco que cubre dos tercios de el
+    framebuffer.ring(x, y, 15.0, 1.8, RETICLE_COLOR, 0.95, |angle| {
+        (angle - spin).rem_euclid(QUARTER) < QUARTER * 0.66
+    });
+    framebuffer.ring(x, y, 8.0, 1.0, RETICLE_COLOR, 0.45, |_| true);
+    framebuffer.ring(x, y, 21.5, 4.0, RETICLE_COLOR, 0.8, |angle| {
+        let offset = angle.rem_euclid(QUARTER);
+        offset < 0.06 || offset > QUARTER - 0.06
+    });
+    framebuffer.ring(x, y, 0.0, 3.2, RETICLE_COLOR, 1.0, |_| true);
 }
 
 /// None si el punto queda detras de la camara.
