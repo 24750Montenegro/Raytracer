@@ -242,7 +242,7 @@ impl Flight {
             objects.push(SceneObject {
                 projection: at.matrix(),
                 to_viewer,
-                ..SceneObject::new(mesh, model_matrix, body.shader)
+                ..SceneObject::body(mesh, model_matrix, body.shader)
             });
             // lunas y anillos se ven como su planeta, para no separarse de el
             for accessory in &body.accessories {

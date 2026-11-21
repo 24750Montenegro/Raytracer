@@ -32,7 +32,7 @@ use obj::Obj;
 use primitive::primitive_assembly;
 use rasterizer::rasterize;
 use selector::Selector;
-use shaders::{fragment_shader_with, vertex_shader_with_matrix, Accessory, Frag, Normals, SHADERS};
+use shaders::{fragment_shader_with, transform, vertex_shader_with_matrix, Accessory, Frag, Normals, SHADERS};
 use vertex::Vertex;
 
 const MODEL_PATH: &str = "assets/models/sphere.obj";
@@ -93,6 +93,9 @@ struct SceneObject<'a> {
     /// Desde donde se mira este objeto, si no es `Uniforms::to_viewer`. En
     /// vuelo cada objeto se ve por la linea que lo une con la camara.
     to_viewer: Option<Vector3>,
+    /// Si es una esfera cerrada: su mitad de atras no se ve nunca y se
+    /// descarta antes de rasterizar.
+    cull_back_faces: bool,
 }
 
 impl<'a> SceneObject<'a> {
@@ -104,7 +107,13 @@ impl<'a> SceneObject<'a> {
             normals: Normals::Sphere,
             projection: Matrix::identity(),
             to_viewer: None,
+            cull_back_faces: false,
         }
+    }
+
+    /// Una estrella o un planeta: esferas cerradas, sin cara de atras visible.
+    fn body(vertices: &'a [Vertex], model_matrix: Matrix, shade: fn(&Frag) -> Vector3) -> Self {
+        SceneObject { cull_back_faces: true, ..SceneObject::new(vertices, model_matrix, shade) }
     }
 }
 
@@ -206,10 +215,10 @@ fn draw_system(framebuffer: &mut Framebuffer, uniforms: &mut Uniforms, sphere: &
     let unit_sphere = fit_unit_sphere(sphere);
     let mut objects = Vec::with_capacity(stars.len() + planets.len() * 3 + orbit_guides.len());
     for star in &stars {
-        objects.push(SceneObject::new(sphere, multiply(&star.model_matrix, &unit_sphere), star.shader));
+        objects.push(SceneObject::body(sphere, multiply(&star.model_matrix, &unit_sphere), star.shader));
     }
     for planet in &planets {
-        objects.push(SceneObject::new(sphere, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
+        objects.push(SceneObject::body(sphere, multiply(&planet.model_matrix, &unit_sphere), planet.shader));
         for accessory in &planet.accessories {
             objects.push(SceneObject::new(accessory.vertices, accessory.model_matrix.clone(), accessory.shade));
         }
@@ -283,7 +292,7 @@ fn render(
     vertex_array: &[Vertex],
     accessories: &[Accessory],
 ) {
-    let mut objects = vec![SceneObject::new(vertex_array, uniforms.model_matrix.clone(), uniforms.shader)];
+    let mut objects = vec![SceneObject::body(vertex_array, uniforms.model_matrix.clone(), uniforms.shader)];
     objects.extend(accessories.iter().map(|object| {
         SceneObject::new(object.vertices, object.model_matrix.clone(), object.shade)
     }));
@@ -305,7 +314,17 @@ fn render_objects(framebuffer: &mut Framebuffer, uniforms: &Uniforms, objects: &
                 .iter()
                 .map(|vertex| vertex_shader_with_matrix(vertex, &object.model_matrix, &to_screen))
                 .collect();
-            primitive_assembly(&transformed)
+            let mut triangles = primitive_assembly(&transformed);
+            if object.cull_back_faces {
+                // un triangulo queda si alguna de sus esquinas mira a la camara,
+                // con la misma normal que usa el sombreado de la esfera
+                let to_viewer = object.to_viewer.unwrap_or(uniforms.to_viewer);
+                let faces_viewer = |vertex: &Vertex| {
+                    transform(&object.model_matrix, vertex.position.normalized(), 0.0).dot(to_viewer) > 0.0
+                };
+                triangles.retain(|corners| corners.iter().any(faces_viewer));
+            }
+            triangles
         })
         .collect();
 
